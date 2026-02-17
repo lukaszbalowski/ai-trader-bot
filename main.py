@@ -286,7 +286,6 @@ async def polymarket_ws_listener():
                             if tokens_to_add:
                                 subscribed_tokens.update(tokens_to_add)
                                 log(f"[WS] Wykryto nowy rynek (+{len(tokens_to_add)} tokenów). Wymuszam twardy restart strumienia dla zrzutu arkusza...")
-                                # CELOWE ZABICIE SOCKETU - Wymusza wejście w "Except" i natychmiastowy reconnect
                                 await websocket.close()
                                 break
                     except asyncio.CancelledError:
@@ -310,18 +309,15 @@ async def polymarket_ws_listener():
                         for data in parsed_msg:
                             event_type = data.get('event_type', '')
                             
-                            # 1. Startowy Snapshot arkusza
                             if event_type == 'book' or 'bids' in data or 'asks' in data:
                                 t_id = data.get('asset_id')
                                 if t_id:
                                     LOCAL_STATE['polymarket_books'][t_id] = {'bids': {}, 'asks': {}}
-                                    
                                     for bid in data.get('bids', []):
                                         LOCAL_STATE['polymarket_books'][t_id]['bids'][float(bid['price'])] = float(bid['size'])
                                     for ask in data.get('asks', []):
                                         LOCAL_STATE['polymarket_books'][t_id]['asks'][float(ask['price'])] = float(ask['size'])
                             
-                            # 2. Zmiany Live w arkuszu
                             if event_type == 'price_change' or 'price_changes' in data:
                                 for change in data.get('price_changes', []):
                                     t_id = change.get('asset_id')
@@ -467,7 +463,7 @@ async def verify_price_visual(slug, m_id):
         log(f"👁️ [VERIFIED] Playwright pobrał nową bazę: {v}")
 
 # ==========================================
-# 6. SILNIK STRATEGII (EVENT-DRIVEN WYZWALACZE)
+# 6. SILNIK STRATEGII (ZOPTYMALIZOWANY)
 # ==========================================
 async def evaluate_strategies(trigger_source, market_filter=None):
     live_p = LOCAL_STATE['binance_live_price']
@@ -491,21 +487,8 @@ async def evaluate_strategies(trigger_source, market_filter=None):
         timeframe = timing['timeframe']
         
         adj_delta = adjusted_live_p - m_data['price']
-        
         b_up, s_up = extract_best_prices(cache['up_id'])
         b_dn, s_dn = extract_best_prices(cache['dn_id'])
-
-        # ==========================================
-        # NOWY MECHANIZM: 60-Second Power Snipe ($2.00)
-        # ==========================================
-        power_snipe_flag = f"power_snipe_{m_id}"
-        if 59 <= sec_left <= 61 and power_snipe_flag not in EXECUTED_STRAT[m_id]:
-            if adj_delta >= 100 and b_up <= 0.97:
-                execute_trade(m_id, timeframe, "Power Snipe 60s", "UP", 2.0, b_up)
-                EXECUTED_STRAT[m_id].append(power_snipe_flag)
-            elif adj_delta <= -100 and b_dn <= 0.97:
-                execute_trade(m_id, timeframe, "Power Snipe 60s", "DOWN", 2.0, b_dn)
-                EXECUTED_STRAT[m_id].append(power_snipe_flag)
 
         # ==========================================
         # ZARZĄDZANIE OTWARTYMI POZYCJAMI (Wyjścia)
@@ -516,21 +499,23 @@ async def evaluate_strategies(trigger_source, market_filter=None):
                 
             current_bid = s_up if trade['direction'] == 'UP' else s_dn
             
-            # NOWY MECHANIZM: 2-Second Safety Cashout (Ochrona przed zerem)
+            # STRATEGIA 7: 2-Second Safety Cashout
             if 1.0 <= sec_left <= 2.5:
                 if current_bid > trade['entry_price']:
                     close_trade(trade, current_bid, "Safety Cashout (Zysk przed końcem)")
-                    continue # Pozycja zamknięta, przechodzimy do kolejnej
+                    continue
             
-            # NOWY MECHANIZM: Straddle Take Profit (TP 80% / 90 centów)
+            # STRATEGIA 6: Zoptymalizowany Straddle Take Profit / Cut Loss
             if trade['strategy'] == "Straddle":
-                if current_bid >= 0.90:
-                    close_trade(trade, current_bid, "Straddle Take Profit (Cel >90¢)")
+                tp_level = 0.95 if trade['timeframe'] == '15m' else 0.93
+                if current_bid >= tp_level:
+                    close_trade(trade, current_bid, f"Straddle Take Profit (Cel >{int(tp_level*100)}¢)")
                     continue
                 
-                # Stara logika Straddle Cut (Cięcie strat dla "zgniłej" opcji)
-                wait_limit = 60 if trade['timeframe'] == '15m' else 30
-                if current_bid <= 0.30 and trade['timer_start'] is None:
+                cl_act = 0.38 if trade['timeframe'] == '15m' else 0.35
+                wait_limit = 27 if trade['timeframe'] == '15m' else 23
+                
+                if current_bid <= cl_act and trade['timer_start'] is None:
                     trade['timer_start'] = time.time()
                 
                 if trade['timer_start'] is not None:
@@ -541,51 +526,86 @@ async def evaluate_strategies(trigger_source, market_filter=None):
                         continue
 
         # ==========================================
-        # ORYGINALNE STRATEGIE
+        # STRATEGIA 5: POWER SNIPE (Zoptymalizowany Tryb Otwarty)
         # ==========================================
-        
-        # --- STRAT 4: Precision Lag Sniper ---
+        power_snipe_flag = f"power_snipe_{m_id}"
+        if 2.0 <= sec_left <= 80.0 and power_snipe_flag not in EXECUTED_STRAT[m_id]:
+            max_price_ps = 0.95 if timeframe == '15m' else 0.96
+            if adj_delta >= 75.0 and 0 < b_up <= max_price_ps:
+                execute_trade(m_id, timeframe, "Power Snipe", "UP", 2.0, b_up)
+                EXECUTED_STRAT[m_id].append(power_snipe_flag)
+            elif adj_delta <= -75.0 and 0 < b_dn <= max_price_ps:
+                execute_trade(m_id, timeframe, "Power Snipe", "DOWN", 2.0, b_dn)
+                EXECUTED_STRAT[m_id].append(power_snipe_flag)
+
+        # ==========================================
+        # STRATEGIA 1: LAG SNIPER (Zoptymalizowane Progi)
+        # ==========================================
         if trigger_source == "BINANCE_TICK":
             btc_jump = live_p - LOCAL_STATE['prev_btc']
             up_change = b_up - m_data['prev_up']
             dn_change = b_dn - m_data['prev_dn']
             
-            jump_threshold = 30.0 if sec_left > 60 else 15.0
+            if timeframe == '15m':
+                jump_threshold = 20.0 if sec_left > 30 else 10.0
+                lag_tol = 0.05
+                max_price_ls = 0.90
+            else:
+                jump_threshold = 15.0 # Zoptymalizowany stały próg dla 5m
+                lag_tol = 0.05
+                max_price_ls = 0.92
             
             if 10 < sec_left < timing['interval_s'] - 5:
-                if btc_jump >= jump_threshold and abs(up_change) < 0.05 and b_up > 0:
-                    if adjusted_live_p >= (m_data['price'] - 15):
-                        execute_trade(m_id, timeframe, "Lag Sniper", "UP", 2.0, b_up)
-                elif btc_jump <= -jump_threshold and abs(dn_change) < 0.05 and b_dn > 0:
-                    if adjusted_live_p <= (m_data['price'] + 15):
-                        execute_trade(m_id, timeframe, "Lag Sniper", "DOWN", 2.0, b_dn)
+                # Usunięto filtr Out-of-the-money (adj_delta) na podstawie wyników backtestów
+                if btc_jump >= jump_threshold and abs(up_change) <= lag_tol and 0 < b_up <= max_price_ls:
+                    execute_trade(m_id, timeframe, "Lag Sniper", "UP", 2.0, b_up)
+                elif btc_jump <= -jump_threshold and abs(dn_change) <= lag_tol and 0 < b_dn <= max_price_ls:
+                    execute_trade(m_id, timeframe, "Lag Sniper", "DOWN", 2.0, b_dn)
             
             m_data['prev_up'], m_data['prev_dn'] = b_up, b_dn
 
-        # --- STRAT 1: Straddle & Cut (Tylko wejście) ---
-        if sec_since_start <= 45 and 'straddle' not in EXECUTED_STRAT[m_id]:
-            if abs(adj_delta) <= 20.0:
+        # ==========================================
+        # STRATEGIA 2: STRADDLE & CUT (Zoptymalizowane Wejście)
+        # ==========================================
+        start_win_straddle = 53 if timeframe == '15m' else 36
+        max_delta_straddle = 28.0 if timeframe == '15m' else 27.0
+        
+        if sec_since_start <= start_win_straddle and 'straddle' not in EXECUTED_STRAT[m_id]:
+            if abs(adj_delta) <= max_delta_straddle:
                 if 0.45 <= b_up <= 0.55 and 0.45 <= b_dn <= 0.55:
                     execute_trade(m_id, timeframe, "Straddle", "UP", 1.0, b_up)
                     execute_trade(m_id, timeframe, "Straddle", "DOWN", 1.0, b_dn)
                     EXECUTED_STRAT[m_id].append('straddle')
 
-        # --- STRAT 2: 1-Min Momentum ---
-        if 50 <= sec_left <= 70 and 'momentum' not in EXECUTED_STRAT[m_id]:
-            if adj_delta >= 30 and b_up <= 0.80:
+        # ==========================================
+        # STRATEGIA 3: 1-MINUTE MOMENTUM (Zoptymalizowane)
+        # ==========================================
+        if timeframe == '15m':
+            win_start_mom, win_end_mom = 55, 52
+            req_delta_mom = 20.0
+            max_price_mom = 0.72
+        else:
+            win_start_mom, win_end_mom = 74, 48
+            req_delta_mom = 33.0
+            max_price_mom = 0.82
+
+        if win_end_mom <= sec_left <= win_start_mom and 'momentum' not in EXECUTED_STRAT[m_id]:
+            if adj_delta >= req_delta_mom and 0 < b_up <= max_price_mom:
                 execute_trade(m_id, timeframe, "1-Min Momentum", "UP", 1.0, b_up)
                 EXECUTED_STRAT[m_id].append('momentum')
-            elif adj_delta <= -30 and b_dn <= 0.80:
+            elif adj_delta <= -req_delta_mom and 0 < b_dn <= max_price_mom:
                 execute_trade(m_id, timeframe, "1-Min Momentum", "DOWN", 1.0, b_dn)
                 EXECUTED_STRAT[m_id].append('momentum')
 
-        # --- STRAT 3: Deep Snipe ---
-        if 25 <= sec_left <= 35 and 'deep_snipe' not in EXECUTED_STRAT[m_id]:
-            if adj_delta >= 80 and b_up <= 0.97:
-                execute_trade(m_id, timeframe, "30-Sec Snipe", "UP", 10.0, b_up)
+        # ==========================================
+        # STRATEGIA 4: DEEP SNIPE (Zoptymalizowane)
+        # ==========================================
+        if 20 <= sec_left <= 38 and 'deep_snipe' not in EXECUTED_STRAT[m_id]:
+            if adj_delta >= 50.0 and 0 < b_up <= 0.95:
+                execute_trade(m_id, timeframe, "Deep Snipe", "UP", 10.0, b_up)
                 EXECUTED_STRAT[m_id].append('deep_snipe')
-            elif adj_delta <= -80 and b_dn <= 0.97:
-                execute_trade(m_id, timeframe, "30-Sec Snipe", "DOWN", 10.0, b_dn)
+            elif adj_delta <= -50.0 and 0 < b_dn <= 0.95:
+                execute_trade(m_id, timeframe, "Deep Snipe", "DOWN", 10.0, b_dn)
                 EXECUTED_STRAT[m_id].append('deep_snipe')
 
 # ==========================================
@@ -604,7 +624,7 @@ async def main():
     
     await init_db()
     
-    log(f"🚀 Watcher 10.15 (EVENT-DRIVEN WEBSOCKET EDITION) online!")
+    log(f"🚀 Watcher 10.15 (ZOPTYMALIZOWANY QUANT TRADER) online!")
     log(f"💰 Początkowy kapitał: ${PORTFOLIO_BALANCE:.2f}")
     log(f"🔧 Sztywna korekta (Offset): {FIXED_OFFSET:+.2f}")
     log("⌨️  Wpisz 'p' + Enter aby zobaczyć portfel. 'q' + Enter aby zamknąć.")
