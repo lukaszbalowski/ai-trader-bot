@@ -12,7 +12,7 @@ from datetime import datetime
 import pytz
 from playwright.async_api import async_playwright
 
-# --- STAŁE I KONFIGURACJA (z v10.15) ---
+# --- STAŁE I KONFIGURACJA ---
 CHECK_INTERVAL = 1
 FIXED_OFFSET = -35.0
 
@@ -67,7 +67,9 @@ async def init_db():
 
 async def flush_to_db():
     global MARKET_LOGS_BUFFER, TRADE_LOGS_BUFFER
-    if not MARKET_LOGS_BUFFER and not TRADE_LOGS_BUFFER: return
+    if not MARKET_LOGS_BUFFER and not TRADE_LOGS_BUFFER: 
+        return
+    
     try:
         async with aiosqlite.connect('data/polymarket.db') as db:
             if MARKET_LOGS_BUFFER:
@@ -139,9 +141,9 @@ async def liquidate_all_and_quit():
             close_trade(trade, live_bid, "ZAMKNIĘCIE AWARYJNE (Likwidacja)")
     else:
         log(" Brak otwartych pozycji do likwidacji.")
+    
     await flush_to_db()
     print_portfolio_status()
-    # Bezpieczne, twarde wyjście zapobiegające błędowi RuntimeError
     os._exit(0)
 
 def handle_stdin():
@@ -156,7 +158,9 @@ def handle_stdin():
 # ==========================================
 def execute_trade(market_id, timeframe, strategy, direction, size_usd, price):
     global PORTFOLIO_BALANCE
-    if price <= 0: return
+    
+    if price <= 0: 
+        return
     if size_usd > PORTFOLIO_BALANCE:
         log(f"❌ Odrzucono zakup '{strategy}'. Brak środków.")
         return
@@ -165,16 +169,24 @@ def execute_trade(market_id, timeframe, strategy, direction, size_usd, price):
     shares = size_usd / price
     trade = {
         'id': f"{market_id}_{len(PAPER_TRADES)}_{int(time.time())}",
-        'market_id': market_id, 'timeframe': timeframe, 'strategy': strategy,
-        'direction': direction, 'entry_price': price, 'entry_time': datetime.now().isoformat(),
-        'shares': shares, 'invested': size_usd, 'timer_start': None
+        'market_id': market_id, 
+        'timeframe': timeframe, 
+        'strategy': strategy,
+        'direction': direction, 
+        'entry_price': price, 
+        'entry_time': datetime.now().isoformat(),
+        'shares': shares, 
+        'invested': size_usd, 
+        'timer_start': None
     }
+    
     PAPER_TRADES.append(trade)
     print("\a")
     print(f"\n✅ [ZAKUP] {strategy} ({timeframe}) | {direction} | Stawka: ${size_usd:.2f} | Cena: {price*100:.1f}¢ | Saldo: ${PORTFOLIO_BALANCE:.2f}\n")
 
 def close_trade(trade, close_price, reason):
     global PORTFOLIO_BALANCE
+    
     return_value = close_price * trade['shares']
     pnl = return_value - trade['invested']
     exit_time = datetime.now().isoformat()
@@ -186,9 +198,12 @@ def close_trade(trade, close_price, reason):
     icon = "💰" if pnl > 0 else "🩸"
     print(f"\n{icon} [SPRZEDAŻ] {trade['strategy']} [{trade['timeframe']}] ({trade['direction']}) | {reason} | Wyjście: {close_price*100:.1f}¢ | PnL: ${pnl:+.2f} | Saldo: ${PORTFOLIO_BALANCE:.2f}\n")
     
-    TRADE_LOGS_BUFFER.append((trade['id'], trade['market_id'], trade['timeframe'],
-        trade['strategy'], trade['direction'], trade['invested'], trade['entry_price'], trade['entry_time'],
-        close_price, exit_time, pnl, reason))
+    TRADE_LOGS_BUFFER.append((
+        trade['id'], trade['market_id'], trade['timeframe'],
+        trade['strategy'], trade['direction'], trade['invested'], 
+        trade['entry_price'], trade['entry_time'],
+        close_price, exit_time, pnl, reason
+    ))
 
 def resolve_market(market_id, final_btc_price, target_price):
     is_up_winner = final_btc_price >= target_price
@@ -208,8 +223,10 @@ async def get_target_via_visual_async(slug):
             content = await page.content()
             await browser.close()
             match = re.search(r'Price to beat.*?\$(\d{1,3}(?:,\d{3})*(?:\.\d+)?)', content, re.IGNORECASE | re.DOTALL)
-            if match: return float(match.group(1).replace(',', ''))
-    except: pass
+            if match: 
+                return float(match.group(1).replace(',', ''))
+    except: 
+        pass
     return None
 
 # ==========================================
@@ -219,7 +236,7 @@ async def binance_ws_listener():
     url = "wss://stream.binance.com:9443/ws/btcusdt@ticker"
     while True:
         try:
-            async with websockets.connect(url) as ws:
+            async with websockets.connect(url, ping_interval=20, ping_timeout=20) as ws:
                 log("[WS] Podłączono do Binance (Ultra-Low Latency)")
                 async for msg in ws:
                     data = json.loads(msg)
@@ -235,10 +252,13 @@ async def binance_ws_listener():
 
 def extract_best_prices(token_id):
     book = LOCAL_STATE['polymarket_books'].get(token_id, {'bids': {}, 'asks': {}})
-    valid_bids = [float(p) for p, s in book['bids'].items() if s > 0 and 0.005 < float(p) < 0.995]
+    
+    valid_bids = [p for p, s in book['bids'].items() if s > 0 and 0.005 < p < 0.995]
     best_bid = max(valid_bids) if valid_bids else 0.0
-    valid_asks = [float(p) for p, s in book['asks'].items() if s > 0 and 0.005 < float(p) < 0.995]
+    
+    valid_asks = [p for p, s in book['asks'].items() if s > 0 and 0.005 < p < 0.995]
     best_ask = min(valid_asks) if valid_asks else 0.0
+    
     return best_ask, best_bid
 
 async def polymarket_ws_listener():
@@ -247,52 +267,87 @@ async def polymarket_ws_listener():
     
     while True:
         try:
-            async with websockets.connect(url) as ws:
+            async with websockets.connect(url, ping_interval=20, ping_timeout=20) as ws:
                 log("[WS] Podłączono do Polymarket CLOB (Asynchronous)")
                 
                 if subscribed_tokens:
                     await ws.send(json.dumps({"assets_ids": list(subscribed_tokens), "type": "market"}))
 
-                async def process_queue():
-                    while True:
-                        new_tokens = await WS_SUBSCRIPTION_QUEUE.get()
-                        tokens_to_add = [t for t in new_tokens if t not in subscribed_tokens]
-                        if tokens_to_add:
-                            await ws.send(json.dumps({"assets_ids": tokens_to_add, "type": "market"}))
-                            subscribed_tokens.update(tokens_to_add)
-                
-                queue_task = asyncio.create_task(process_queue())
-
-                async for msg in ws:
-                    # Poprawka: Odrzucamy puste pingi systemowe (np. "OK")
-                    if not msg or (not msg.startswith('{') and not msg.startswith('[')): 
-                        continue
-                    
+                async def process_queue(websocket):
                     try:
-                        data = json.loads(msg)
-                    except json.JSONDecodeError:
-                        continue
+                        while True:
+                            new_tokens = await WS_SUBSCRIPTION_QUEUE.get()
+                            
+                            while not WS_SUBSCRIPTION_QUEUE.empty():
+                                new_tokens.extend(WS_SUBSCRIPTION_QUEUE.get_nowait())
+                                
+                            tokens_to_add = list(set([t for t in new_tokens if t not in subscribed_tokens]))
+                            
+                            if tokens_to_add:
+                                subscribed_tokens.update(tokens_to_add)
+                                log(f"[WS] Wykryto nowy rynek (+{len(tokens_to_add)} tokenów). Wymuszam twardy restart strumienia dla zrzutu arkusza...")
+                                # CELOWE ZABICIE SOCKETU - Wymusza wejście w "Except" i natychmiastowy reconnect
+                                await websocket.close()
+                                break
+                    except asyncio.CancelledError:
+                        pass
+                
+                queue_task = asyncio.create_task(process_queue(ws))
+
+                try:
+                    async for msg in ws:
+                        if not msg or (not msg.startswith('{') and not msg.startswith('[')): 
+                            continue
                         
-                    if isinstance(data, list): data = data[0]
-                    
-                    if 'asset_id' in data:
-                        t_id = data['asset_id']
-                        if t_id not in LOCAL_STATE['polymarket_books']:
-                            LOCAL_STATE['polymarket_books'][t_id] = {'bids': {}, 'asks': {}}
-                        
-                        for bid in data.get('bids', []):
-                            LOCAL_STATE['polymarket_books'][t_id]['bids'][bid['price']] = float(bid['size'])
-                        for ask in data.get('asks', []):
-                            LOCAL_STATE['polymarket_books'][t_id]['asks'][ask['price']] = float(ask['size'])
-                        
+                        try:
+                            parsed_msg = json.loads(msg)
+                        except json.JSONDecodeError:
+                            continue
+                            
+                        if not isinstance(parsed_msg, list):
+                            parsed_msg = [parsed_msg]
+                            
+                        for data in parsed_msg:
+                            event_type = data.get('event_type', '')
+                            
+                            # 1. Startowy Snapshot arkusza
+                            if event_type == 'book' or 'bids' in data or 'asks' in data:
+                                t_id = data.get('asset_id')
+                                if t_id:
+                                    LOCAL_STATE['polymarket_books'][t_id] = {'bids': {}, 'asks': {}}
+                                    
+                                    for bid in data.get('bids', []):
+                                        LOCAL_STATE['polymarket_books'][t_id]['bids'][float(bid['price'])] = float(bid['size'])
+                                    for ask in data.get('asks', []):
+                                        LOCAL_STATE['polymarket_books'][t_id]['asks'][float(ask['price'])] = float(ask['size'])
+                            
+                            # 2. Zmiany Live w arkuszu
+                            if event_type == 'price_change' or 'price_changes' in data:
+                                for change in data.get('price_changes', []):
+                                    t_id = change.get('asset_id')
+                                    if not t_id: continue
+                                    
+                                    if t_id not in LOCAL_STATE['polymarket_books']:
+                                        LOCAL_STATE['polymarket_books'][t_id] = {'bids': {}, 'asks': {}}
+                                        
+                                    price = float(change.get('price'))
+                                    size = float(change.get('size', 0))
+                                    side = change.get('side', '').upper()
+                                    
+                                    if side == 'BUY':
+                                        LOCAL_STATE['polymarket_books'][t_id]['bids'][price] = size
+                                    elif side == 'SELL':
+                                        LOCAL_STATE['polymarket_books'][t_id]['asks'][price] = size
+                                        
                         await evaluate_strategies("CLOB_TICK")
+                finally:
+                    queue_task.cancel()
 
         except Exception as e:
-            log(f"[WS BŁĄD] Utracono Polymarket: {e}. Reconnect za 2s...")
-            await asyncio.sleep(2)
+            await asyncio.sleep(0.1)
 
 # ==========================================
-# 5. MENEDŻER RYNKÓW (Zastępuje odpytywanie w pętli)
+# 5. MENEDŻER RYNKÓW (Menedżer Stanu)
 # ==========================================
 async def fetch_and_track_markets():
     tz_et = pytz.timezone('America/New_York')
@@ -302,6 +357,7 @@ async def fetch_and_track_markets():
             try:
                 now_et = datetime.now(tz_et)
                 live_p = LOCAL_STATE['binance_live_price']
+                
                 if live_p == 0.0:
                     await asyncio.sleep(1)
                     continue
@@ -332,7 +388,8 @@ async def fetch_and_track_markets():
                                             await WS_SUBSCRIPTION_QUEUE.put([up_id, dn_id])
                                             break
                     
-                    if slug not in MARKET_CACHE: continue
+                    if slug not in MARKET_CACHE: 
+                        continue
                     
                     m_id = MARKET_CACHE[slug]['id']
                     timeframe = config['timeframe']
@@ -348,13 +405,16 @@ async def fetch_and_track_markets():
                         old_m_id = ACTIVE_MARKETS[timeframe]['m_id']
                         old_target = ACTIVE_MARKETS[timeframe]['target']
                         adjusted_final_price = live_p + FIXED_OFFSET
+                        
                         log(f"🔔 RYNEK ZAMKNIĘTY [{timeframe}]. Baza=${old_target:.2f} vs Adjusted Binance=${adjusted_final_price:.2f}")
                         resolve_market(old_m_id, adjusted_final_price, old_target)
+                        
                         ACTIVE_MARKETS[timeframe] = {'m_id': m_id, 'target': m_data['price']}
                     else:
                         ACTIVE_MARKETS[timeframe]['target'] = m_data['price']
 
-                    if sec_left >= interval_s - 2: continue
+                    if sec_left >= interval_s - 2: 
+                        continue
 
                     if not m_data['verified'] and sec_since_start >= 30:
                         if (time.time() - m_data['last_retry']) > 60:
@@ -369,17 +429,19 @@ async def fetch_and_track_markets():
                         'm_data': m_data
                     }
                     
-                    up_id, dn_id = MARKET_CACHE[slug]['up_id'], MARKET_CACHE[slug]['dn_id']
+                    up_id = MARKET_CACHE[slug]['up_id']
+                    dn_id = MARKET_CACHE[slug]['dn_id']
                     b_up, s_up = extract_best_prices(up_id)
                     b_dn, s_dn = extract_best_prices(dn_id)
                     
                     LIVE_MARKET_DATA[m_id] = {'UP_BID': s_up, 'DOWN_BID': s_dn}
                     adjusted_live_p = live_p + FIXED_OFFSET
                     
-                    MARKET_LOGS_BUFFER.append((config['timeframe'], m_id, m_data['price'], 
-                        adjusted_live_p, b_up, s_up, b_dn, s_dn, datetime.now().isoformat()))
+                    MARKET_LOGS_BUFFER.append((
+                        config['timeframe'], m_id, m_data['price'], 
+                        adjusted_live_p, b_up, s_up, b_dn, s_dn, datetime.now().isoformat()
+                    ))
 
-                    # PRZYWRÓCONE LOGOWANIE NA ŻYWO (co 1 sekundę)!
                     pref = " [VERIFIED]" if m_data['verified'] else " [FALLBACK]"
                     status = " ABOVE" if adjusted_live_p >= m_data['price'] else " BELOW"
                     sign = "+" if FIXED_OFFSET >= 0 else "-"
@@ -405,7 +467,7 @@ async def verify_price_visual(slug, m_id):
         log(f"👁️ [VERIFIED] Playwright pobrał nową bazę: {v}")
 
 # ==========================================
-# 6. SILNIK STRATEGII (EVENT-DRIVEN)
+# 6. SILNIK STRATEGII (EVENT-DRIVEN WYZWALACZE)
 # ==========================================
 async def evaluate_strategies(trigger_source, market_filter=None):
     live_p = LOCAL_STATE['binance_live_price']
@@ -413,9 +475,14 @@ async def evaluate_strategies(trigger_source, market_filter=None):
     
     for slug, cache in MARKET_CACHE.items():
         m_id = cache['id']
-        if market_filter and m_id != market_filter: continue
-        if m_id not in EXECUTED_STRAT: EXECUTED_STRAT[m_id] = []
-        if f'timing_{m_id}' not in LOCAL_STATE: continue
+        if market_filter and m_id != market_filter: 
+            continue
+            
+        if m_id not in EXECUTED_STRAT: 
+            EXECUTED_STRAT[m_id] = []
+            
+        if f'timing_{m_id}' not in LOCAL_STATE: 
+            continue
 
         timing = LOCAL_STATE[f'timing_{m_id}']
         sec_left = timing['sec_left']
@@ -428,6 +495,55 @@ async def evaluate_strategies(trigger_source, market_filter=None):
         b_up, s_up = extract_best_prices(cache['up_id'])
         b_dn, s_dn = extract_best_prices(cache['dn_id'])
 
+        # ==========================================
+        # NOWY MECHANIZM: 60-Second Power Snipe ($2.00)
+        # ==========================================
+        power_snipe_flag = f"power_snipe_{m_id}"
+        if 59 <= sec_left <= 61 and power_snipe_flag not in EXECUTED_STRAT[m_id]:
+            if adj_delta >= 100 and b_up <= 0.97:
+                execute_trade(m_id, timeframe, "Power Snipe 60s", "UP", 2.0, b_up)
+                EXECUTED_STRAT[m_id].append(power_snipe_flag)
+            elif adj_delta <= -100 and b_dn <= 0.97:
+                execute_trade(m_id, timeframe, "Power Snipe 60s", "DOWN", 2.0, b_dn)
+                EXECUTED_STRAT[m_id].append(power_snipe_flag)
+
+        # ==========================================
+        # ZARZĄDZANIE OTWARTYMI POZYCJAMI (Wyjścia)
+        # ==========================================
+        for trade in PAPER_TRADES[:]:
+            if trade['market_id'] != m_id: 
+                continue
+                
+            current_bid = s_up if trade['direction'] == 'UP' else s_dn
+            
+            # NOWY MECHANIZM: 2-Second Safety Cashout (Ochrona przed zerem)
+            if 1.0 <= sec_left <= 2.5:
+                if current_bid > trade['entry_price']:
+                    close_trade(trade, current_bid, "Safety Cashout (Zysk przed końcem)")
+                    continue # Pozycja zamknięta, przechodzimy do kolejnej
+            
+            # NOWY MECHANIZM: Straddle Take Profit (TP 80% / 90 centów)
+            if trade['strategy'] == "Straddle":
+                if current_bid >= 0.90:
+                    close_trade(trade, current_bid, "Straddle Take Profit (Cel >90¢)")
+                    continue
+                
+                # Stara logika Straddle Cut (Cięcie strat dla "zgniłej" opcji)
+                wait_limit = 60 if trade['timeframe'] == '15m' else 30
+                if current_bid <= 0.30 and trade['timer_start'] is None:
+                    trade['timer_start'] = time.time()
+                
+                if trade['timer_start'] is not None:
+                    if current_bid >= 0.50:
+                        trade['timer_start'] = None
+                    elif (time.time() - trade['timer_start']) >= wait_limit:
+                        close_trade(trade, current_bid, f"Straddle Cut-Loss ({wait_limit}s bez powrotu)")
+                        continue
+
+        # ==========================================
+        # ORYGINALNE STRATEGIE
+        # ==========================================
+        
         # --- STRAT 4: Precision Lag Sniper ---
         if trigger_source == "BINANCE_TICK":
             btc_jump = live_p - LOCAL_STATE['prev_btc']
@@ -446,28 +562,13 @@ async def evaluate_strategies(trigger_source, market_filter=None):
             
             m_data['prev_up'], m_data['prev_dn'] = b_up, b_dn
 
-        # --- STRAT 1: Straddle & Cut ---
+        # --- STRAT 1: Straddle & Cut (Tylko wejście) ---
         if sec_since_start <= 45 and 'straddle' not in EXECUTED_STRAT[m_id]:
             if abs(adj_delta) <= 20.0:
                 if 0.45 <= b_up <= 0.55 and 0.45 <= b_dn <= 0.55:
                     execute_trade(m_id, timeframe, "Straddle", "UP", 1.0, b_up)
                     execute_trade(m_id, timeframe, "Straddle", "DOWN", 1.0, b_dn)
                     EXECUTED_STRAT[m_id].append('straddle')
-
-        for trade in PAPER_TRADES[:]:
-            if trade['market_id'] == m_id and trade['strategy'] == "Straddle":
-                current_val = b_up if trade['direction'] == 'UP' else b_dn
-                exit_val = s_up if trade['direction'] == 'UP' else s_dn
-                wait_limit = 60 if trade['timeframe'] == '15m' else 30
-                
-                if current_val <= 0.30 and trade['timer_start'] is None:
-                    trade['timer_start'] = time.time()
-                
-                if trade['timer_start'] is not None:
-                    if current_val >= 0.50:
-                        trade['timer_start'] = None
-                    elif (time.time() - trade['timer_start']) >= wait_limit:
-                        close_trade(trade, exit_val, f"Cięcie strat ({wait_limit}s bez powrotu)")
 
         # --- STRAT 2: 1-Min Momentum ---
         if 50 <= sec_left <= 70 and 'momentum' not in EXECUTED_STRAT[m_id]:

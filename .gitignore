@@ -1,0 +1,35 @@
+# --- Baza Danych i Logi (Kluczowe!) ---
+# Nie chcemy wysyłać historii transakcji ani wyników na GitHub
+data/*
+!data/.gitkeep
+data/*.db-journal
+data/*.db-wal
+*.log
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+.env
+.venv
+env/
+venv/
+ENV/
+
+# --- macOS ---
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# --- Docker ---
+.dockerpy
+# Jeśli używasz docker-compose.override.yml do lokalnych testów:
+docker-compose.override.yml
+
+# --- Playwright & Narzędzia ---
+# Playwright pobiera przeglądarki do folderów systemowych, 
+# ale czasem tworzy raporty lub ślady w folderze projektu
+test-results/
+playwright-report/
+blob-report/
+playwright/.local-browsers
