@@ -1,0 +1,5 @@
+websockets
+aiohttp 
+aiosqlite
+playwright
+pytz
