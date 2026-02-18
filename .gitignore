@@ -33,3 +33,9 @@ test-results/
 playwright-report/
 blob-report/
 playwright/.local-browsers
+bazy/
+analyzer_env/
+venv/
+data/*.db
+data/*.log
+.DS_Store
