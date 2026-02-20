@@ -8,10 +8,78 @@ import os
 import json
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
+# ==========================================
+# 0. ANALIZA POST-MORTEM (TRADE LOGS)
+# ==========================================
+def wykonaj_analize_post_mortem(sciezka_bazy="data/polymarket.db"):
+    print("\n" + "="*80)
+    print(" 🕵️ ANALIZA POST-MORTEM (WYNIKI HISTORYCZNE TRANSAKCJI) ")
+    print("="*80)
+    
+    if not os.path.exists(sciezka_bazy):
+        print("Brak pliku bazy danych. Pomięcie analizy Post-Mortem.")
+        return
+
+    try:
+        conn = sqlite3.connect(sciezka_bazy)
+        # Sprawdzenie czy tabela z transakcjami istnieje
+        cur = conn.cursor()
+        cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='trade_logs_v10'")
+        if not cur.fetchone():
+            print("Tabela trade_logs_v10 jest pusta lub nie istnieje. Pomięcie analizy.")
+            conn.close()
+            return
+            
+        df_trades = pd.read_sql_query("SELECT * FROM trade_logs_v10", conn)
+        conn.close()
+        
+        if df_trades.empty:
+            print("Brak historii transakcji w bazie.")
+            return
+
+        # Ogólne podsumowanie
+        total_pnl = df_trades['pnl'].sum()
+        total_trades = len(df_trades)
+        win_rate = (len(df_trades[df_trades['pnl'] > 0]) / total_trades) * 100 if total_trades > 0 else 0.0
+        
+        print(f"📊 Globalny PnL: {total_pnl:>+10.2f}$ | Łącznie zagrań: {total_trades} | Globalny WR: {win_rate:.1f}%\n")
+        
+        # Grupowanie i agregacja po Rynku (timeframe) i Strategii
+        print(f"{'RYNEK':<12} | {'STRATEGIA':<16} | {'ZAGRAŃ':<6} | {'WR %':<6} | {'PNL ($)':<12}")
+        print("-" * 65)
+        
+        grouped = df_trades.groupby(['timeframe', 'strategy'])
+        
+        for (rynek, strategia), group in grouped:
+            zagrań = len(group)
+            zyskownych = len(group[group['pnl'] > 0])
+            wr = (zyskownych / zagrań) * 100 if zagrań > 0 else 0.0
+            pnl_sum = group['pnl'].sum()
+            
+            # Kolorowanie w terminalu (opcjonalne, ale pomocne)
+            color_start = "\033[32m" if pnl_sum > 0 else "\033[31m"
+            color_end = "\033[0m"
+            
+            print(f"{rynek:<12} | {strategia:<16} | {zagrań:<6} | {wr:>5.1f}% | {color_start}{pnl_sum:>+10.2f}${color_end}")
+            
+    except Exception as e:
+        print(f"Błąd podczas generowania analizy Post-Mortem: {e}")
+
+# ==========================================
+# 1. PRZYGOTOWANIE DANYCH LEVEL 2
+# ==========================================
 def wczytaj_i_przygotuj_dane(sciezka_bazy="data/polymarket.db"):
+    if not os.path.exists(sciezka_bazy):
+        return pd.DataFrame()
+        
     conn = sqlite3.connect(sciezka_bazy)
-    df = pd.read_sql_query("SELECT * FROM market_logs_v11 WHERE buy_up > 0 OR buy_down > 0 ORDER BY fetched_at ASC", conn)
-    conn.close()
+    # Zabezpieczenie przed brakiem tabeli
+    try:
+        df = pd.read_sql_query("SELECT * FROM market_logs_v11 WHERE buy_up > 0 OR buy_down > 0 ORDER BY fetched_at ASC", conn)
+    except Exception:
+        df = pd.DataFrame()
+    finally:
+        conn.close()
     
     if df.empty: return df
     df['fetched_at'] = pd.to_datetime(df['fetched_at'])
@@ -308,13 +376,17 @@ if __name__ == "__main__":
     import multiprocessing
     multiprocessing.freeze_support()
     
-    print("⏳ Wczytywanie bazy danych SQLite (v11) i formatowanie danych Numpy...")
+    # KROK 1: Analiza zakończonych transakcji
+    wykonaj_analize_post_mortem()
+    
+    # KROK 2: Klasyczny proces Optymalizacji (Wektoryzacja)
+    print("\n⏳ Wczytywanie bazy danych SQLite (v11) i formatowanie danych Numpy do symulacji...")
     time_s = time.time()
     dane_historyczne = wczytaj_i_przygotuj_dane()
     print(f"✅ Załadowano i wektoryzowano dane w {time.time()-time_s:.2f} sekundy.")
     
     if dane_historyczne.empty:
-        print("Baza danych jest pusta. Uruchom main.py na żywo, aby zebrać logi poziomu 2.")
+        print("Brak logów rynkowych poziomu 2 do przeprowadzenia nowej optymalizacji siatkowej.")
     else:
         unikalne_rynki = dane_historyczne['timeframe'].unique()
         optymalizacje = {}
@@ -356,7 +428,7 @@ if __name__ == "__main__":
             if symbol == 'SOL': decimals = 3
             if symbol == 'XRP': decimals = 4
             
-            interval_s = int(interwal.replace('m', '')) * 60
+            interval_s = int(interwal.replace('m', '').replace('h', '')) * (60 if 'm' in interwal else 3600)
             
             cfg = {
                 "symbol": symbol,
