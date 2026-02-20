@@ -1,121 +1,99 @@
 import sys
-from datetime import datetime
 
-# Klasyczne kolory ANSI do formatowania konsoli
-GREEN = '\033[92m'
-RED = '\033[91m'
-YELLOW = '\033[93m'
-CYAN = '\033[96m'
-RESET = '\033[0m'
-BOLD = '\033[1m'
-
-def render_dashboard(tracked_configs, local_state, active_markets, paper_trades, live_market_data, portfolio_balance, initial_balance, recent_logs, active_errors, trade_history):
-    lines = []
+def render_dashboard(configs, state, active_markets, trades, live_data, balance, init_balance, logs, errors, trade_history):
+    CLR = "\033[2J\033[H"
+    RST = "\033[0m"
+    BLD = "\033[1m"
+    GRN = "\033[32m"
+    RED = "\033[31m"
+    YLW = "\033[33m"
+    CYN = "\033[36m"
+    MAG = "\033[35m"
     
-    # Przesunięcie kursora na samą górę i wyczyszczenie ekranu
-    lines.append('\033[H\033[J')
+    out = [CLR]
+    out.append(f"{BLD}{MAG}=== WATCHER v10.27 (INTEGRATED POSITIONS & ID POOL) ==={RST}")
     
-    lines.append(f"{BOLD}{CYAN}=== 🚀 WATCHER v10.20 LIVE HFT TERMINAL ==={RESET}   Czas lokalny: {datetime.now().strftime('%H:%M:%S')}")
-    lines.append("")
-
-    total_current_value = 0.0
-
-    # Rysowanie ramek dla każdego z rynków
-    for config in tracked_configs:
-        symbol = config['symbol']
-        tf = config['timeframe']
-        pair = config['pair']
-        decimals = config['decimals']
+    # 1. Globalny PnL %
+    net_pnl = balance - init_balance
+    net_pnl_pct = (net_pnl / init_balance) * 100 if init_balance else 0.0
+    pnl_color = GRN if net_pnl >= 0 else RED
+    out.append(f"Zysk/Strata (Netto): {pnl_color}${net_pnl:+.2f} ({net_pnl_pct:+.2f}%){RST} | Saldo: ${balance:.2f} (Start: ${init_balance:.2f})")
+    out.append(f"{BLD}{CYN}--- RYNKI (LIVE) ---{RST}")
+    
+    for cfg in configs:
+        tk = f"{cfg['symbol']}_{cfg['timeframe']}"
+        live_p = state['binance_live_price'].get(cfg['pair'], 0.0)
+        adj_p = live_p + cfg['offset']
         
-        timeframe_key = f"{symbol}_{tf}"
-        active_m_info = active_markets.get(timeframe_key)
+        # 2. PnL Zrealizowany (dla konkretnego rynku)
+        realized_pnl = sum(t['pnl'] for t in trade_history if f"{t['symbol']}_{t['timeframe']}" == tk)
+        realized_pct = (realized_pnl / init_balance) * 100 if init_balance else 0.0
+        session_color = GRN if realized_pnl > 0 else (RED if realized_pnl < 0 else RST)
+        session_str = f" | Sesja: {session_color}${realized_pnl:+.2f} ({realized_pct:+.2f}%){RST}" if realized_pnl != 0 else ""
         
-        market_id = None
-        sec_left = 0
-        m_data = None
-        
-        if active_m_info:
-            market_id = active_m_info['m_id']
-            timing = local_state.get(f"timing_{market_id}")
-            if timing:
-                sec_left = timing['sec_left']
-                m_data = timing['m_data']
+        if tk in active_markets:
+            m_id = active_markets[tk]['m_id']
+            target = active_markets[tk]['target']
+            timing = state.get(f'timing_{m_id}', {})
+            sec_left = timing.get('sec_left', 0)
+            
+            is_ver = timing.get('m_data', {}).get('verified', False)
+            ver_txt = f"{GRN}[VERIFIED]{RST}" if is_ver else f"{YLW}[UNVERIFIED]{RST}"
+            
+            m_data = live_data.get(m_id, {})
+            b_up = m_data.get('UP_BID', 0.0)
+            b_dn = m_data.get('DOWN_BID', 0.0)
+            
+            diff = adj_p - target
+            diff_trend = f"{GRN}↑{RST}" if diff >= 0 else f"{RED}↓{RST}"
+            
+            market_trades = [t for t in trades if t['market_id'] == m_id]
+            floating_str = ""
+            
+            if market_trades:
+                market_pnl = 0.0
+                market_invested = 0.0
+                for t in market_trades:
+                    c_bid = m_data.get(f"{t['direction']}_BID", 0.0)
+                    market_pnl += (c_bid * t['shares']) - t['invested']
+                    market_invested += t['invested']
                 
-        header = f" {BOLD}{symbol} {tf}{RESET} (Zostało: {sec_left:.0f}s) "
-        
-        if not market_id or not m_data:
-            lines.append(f"╔════{header}════════════════════════════════════════════════════════════════")
-            lines.append(f"║ ⏳ Oczekiwanie na inicjalizację rynku...")
-            lines.append("╚═════════════════════════════════════════════════════════════════════════════════════")
-            continue
-
-        live_p = local_state['binance_live_price'].get(pair, 0.0)
-        adjusted_live_p = live_p + config['offset']
-        base_p = m_data['price']
-        
-        verified_tag = f"{GREEN}VERIFIED{RESET}" if m_data['verified'] else f"{YELLOW}FALLBACK{RESET}"
-        
-        delta = adjusted_live_p - base_p
-        if delta >= 0:
-            status_str = f"{GREEN}ABOVE (+{delta:.{decimals}f}){RESET}"
+                # 3. PnL Pływający % (Floating PnL dla aktywnych pozycji)
+                float_pct = (market_pnl / market_invested) * 100 if market_invested else 0.0
+                float_color = GRN if market_pnl > 0 else (RED if market_pnl < 0 else YLW)
+                floating_str = f" | Float PnL: {float_color}${market_pnl:+.2f} ({float_pct:+.2f}%){RST}"
+            
+            out.append(f"{BLD}{cfg['symbol']} {cfg['timeframe']}{RST} {ver_txt} | Meta: {sec_left:05.1f}s | Baza: ${target:,.2f}{session_str}")
+            out.append(f"   ├─ Live: ${adj_p:,.2f} | D: {diff_trend} ${abs(diff):.2f}{floating_str}")
+            
+            if market_trades:
+                out.append(f"   ├─ L2 -> UP: {b_up*100:04.1f}c | DOWN: {b_dn*100:04.1f}c")
+                out.append(f"   └─ {BLD}{MAG}[AKTYWNE POZYCJE]{RST}")
+                for idx, t in enumerate(market_trades):
+                    prefix = "    └─" if idx == len(market_trades) - 1 else "    ├─"
+                    c_bid = m_data.get(f"{t['direction']}_BID", 0.0)
+                    c_val = c_bid * t['shares']
+                    pnl = c_val - t['invested']
+                    pnl_pct = (pnl / t['invested']) * 100 if t['invested'] else 0.0
+                    t_color = GRN if pnl > 0 else (RED if pnl < 0 else YLW)
+                    
+                    # Wyświetlanie ID z puli 0-99
+                    out.append(f"   {prefix} [ID: {t['short_id']:02d}] {t['strategy']} ({t['direction']}) | Wkład: ${t['invested']:.2f} | PnL: {t_color}${pnl:+.2f} ({pnl_pct:+.2f}%){RST}")
+            else:
+                out.append(f"   └─ L2 -> UP: {b_up*100:04.1f}c | DOWN: {b_dn*100:04.1f}c")
+                
         else:
-            status_str = f"{RED}BELOW ({delta:.{decimals}f}){RESET}"
+            out.append(f"{BLD}{cfg['symbol']} {cfg['timeframe']}{RST} | Oczekiwanie... (Live: ${live_p:,.2f}){session_str}")
             
-        # Obliczanie historycznego, zrealizowanego PnL dla tego konkretnego rynku
-        realized_pnl = sum(t.get('pnl', 0.0) for t in trade_history if t.get('symbol') == symbol and t.get('timeframe') == tf)
-        pnl_hist_color = GREEN if realized_pnl > 0 else (RED if realized_pnl < 0 else RESET)
+    if errors:
+        out.append(f"\n{BLD}{RED}--- ALARMY / BŁĘDY ---{RST}")
+        for err in errors:
+            out.append(f"{RED}{err}{RST}")
             
-        lines.append(f"╔════{header}════════════════════════════════════════════════════════════════")
-        lines.append(f"║ BAZA: ${base_p:,.{decimals}f} [{verified_tag}]  |  LIVE: ${adjusted_live_p:,.{decimals}f}  |  STATUS: {status_str}")
-        lines.append(f"║ 📊 Zrealizowany PnL (Sesja): {pnl_hist_color}${realized_pnl:+.2f}{RESET}")
+    out.append(f"\n{BLD}{YLW}--- LOGI SYSTEMOWE ---{RST}")
+    for l in logs[-5:]:
+        out.append(l)
         
-        market_trades = [t for t in paper_trades if t['market_id'] == market_id]
-        if market_trades:
-            lines.append(f"║ {BOLD}Otwarte pozycje ({len(market_trades)}):{RESET}")
-            for t in market_trades:
-                current_bid = live_market_data.get(market_id, {}).get(f"{t['direction']}_BID", 0.0)
-                val = t['shares'] * current_bid
-                pnl = val - t['invested']
-                
-                pnl_color = GREEN if pnl > 0 else (RED if pnl < 0 else RESET)
-                icon = "📈" if pnl >= 0 else "📉"
-                
-                lines.append(f"║  ↳ {t['strategy']} ({t['direction']}) | Wkład: ${t['invested']:.2f} | Wycena: ${val:.2f} | Unrealized PnL: {pnl_color}{icon} ${pnl:+.2f}{RESET}")
-        else:
-            lines.append(f"║ Brak otwartych pozycji.")
-            
-        lines.append("╚═════════════════════════════════════════════════════════════════════════════════════")
-
-    # Globalna kalkulacja portfela
-    for t in paper_trades:
-        cbid = live_market_data.get(t['market_id'], {}).get(f"{t['direction']}_BID", 0.0)
-        total_current_value += t['shares'] * cbid
-
-    total_invested = sum(t['invested'] for t in paper_trades)
-    total_equity = portfolio_balance + total_current_value
-    net_pnl = total_equity - initial_balance
-    net_color = GREEN if net_pnl >= 0 else (RED if net_pnl < 0 else RESET)
-
-    lines.append("")
-    lines.append(f"💼 {BOLD}PODSUMOWANIE PORTFELA{RESET}")
-    lines.append("─────────────────────────────────────────────────────────────────────────────────────")
-    lines.append(f" Gotówka (Konto)  : ${portfolio_balance:.2f}")
-    lines.append(f" Zainwestowane    : ${total_invested:.2f}")
-    lines.append(f" Aktualna Wycena  : ${total_current_value:.2f}")
-    lines.append(f" Całkowite Equity : ${total_equity:.2f}  |  TOTAL PnL: {net_color}${net_pnl:+.2f}{RESET}")
-    lines.append("─────────────────────────────────────────────────────────────────────────────────────")
-    
-    # 🔴 MODUŁ WYŚWIETLANIA BŁĘDÓW (Jeśli istnieją)
-    if active_errors:
-        lines.append("")
-        lines.append(f"🚨 {BOLD}{RED}WYKRYTO BŁĘDY SYSTEMOWE (Zrzut zapisano w data/error_dumps.log){RESET}")
-        for err in active_errors:
-            lines.append(f" {RED}{err}{RESET}")
-
-    lines.append("")
-    lines.append(f"📝 {BOLD}OSTATNIA AKTYWNOŚĆ (Historia Systemowa){RESET}")
-    for l in recent_logs:
-        lines.append(f" {l}")
-
-    sys.stdout.write('\n'.join(lines) + '\n')
+    out.append(f"\n{BLD}[Klawiszologia] {RST}'q' + Enter -> Awaryjna wyprzedaż i zamknięcie")
+    sys.stdout.write("\n".join(out) + "\n")
     sys.stdout.flush()

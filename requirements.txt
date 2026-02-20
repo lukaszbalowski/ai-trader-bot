@@ -5,3 +5,4 @@ playwright
 pytz
 pandas
 numpy
+web3
