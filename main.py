@@ -9,6 +9,7 @@ import os
 import re
 import argparse
 import traceback
+import uuid
 from datetime import datetime
 import pytz
 from playwright.async_api import async_playwright
@@ -34,25 +35,25 @@ FULL_NAMES = {
     'BTC': 'bitcoin', 'ETH': 'ethereum', 'SOL': 'solana', 'XRP': 'xrp'
 }
 
-# 12 Rynków: 4x 15m, 4x 5m, 4x 1h
+# 12 Rynków: 4x 15m, 4x 5m, 4x 1h (Oryginalna wysoce zyskowna konfiguracja + zablokowane OTM dla Altcoinów/1h)
 TRACKED_CONFIGS = [
-    # --- RYNKI 15 MINUTOWE ---
-    {"symbol": "XRP", "pair": "XRPUSDT", "timeframe": "15m", "interval": 900, "decimals": 4, "offset": 0.0, "lag_sniper": {"prog_bazowy": 0.0013, "prog_koncowka": 0.0002, "czas_koncowki": 90, "lag_tol": 0.1, "max_cena": 0.98, "wr": 85.7}, "momentum": {"delta": 0.0002, "max_p": 0.77, "win_start": 64, "win_end": 30, "wr": 100.0}, "mid_arb": {"delta": 0.0002, "max_p": 0.53, "win_start": 190, "win_end": 30, "wr": 83.3}, "otm": {"win_start": 50, "win_end": 22, "max_p": 0.06, "wr": 80.0}},
-    {"symbol": "BTC", "pair": "BTCUSDT", "timeframe": "15m", "interval": 900, "decimals": 2, "offset": 0.0, "lag_sniper": {"prog_bazowy": 29, "prog_koncowka": 6, "czas_koncowki": 80, "lag_tol": 0.1, "max_cena": 0.96, "wr": 75.9}, "momentum": {"delta": 15, "max_p": 0.83, "win_start": 76, "win_end": 36, "wr": 76.9}, "mid_arb": {"delta": 7, "max_p": 0.57, "win_start": 190, "win_end": 65, "wr": 71.4}, "otm": {"win_start": 70, "win_end": 46, "max_p": 0.03, "wr": 50.0}},
-    {"symbol": "ETH", "pair": "ETHUSDT", "timeframe": "15m", "interval": 900, "decimals": 2, "offset": 0.0, "lag_sniper": {"prog_bazowy": 1.6, "prog_koncowka": 0.5, "czas_koncowki": 90, "lag_tol": 0.15, "max_cena": 0.98, "wr": 81.8}, "momentum": {"delta": 0.7, "max_p": 0.85, "win_start": 76, "win_end": 30, "wr": 100.0}, "mid_arb": {"delta": 0.5, "max_p": 0.59, "win_start": 190, "win_end": 90, "wr": 100.0}, "otm": {"win_start": 50, "win_end": 20, "max_p": 0.04, "wr": 38.5}},
-    {"symbol": "SOL", "pair": "SOLUSDT", "timeframe": "15m", "interval": 900, "decimals": 3, "offset": 0.0, "lag_sniper": {"prog_bazowy": 0.05, "prog_koncowka": 0.02, "czas_koncowki": 50, "lag_tol": 0.05, "max_cena": 0.98, "wr": 69.2}, "momentum": {"delta": 0.08, "max_p": 0.85, "win_start": 68, "win_end": 46, "wr": 100.0}, "mid_arb": {"delta": 0.01, "max_p": 0.45, "win_start": 120, "win_end": 30, "wr": 50.0}, "otm": {"win_start": 74, "win_end": 50, "max_p": 0.02, "wr": 25.0}},
+    # --- RYNKI 15 MINUTOWE (Wyłączono OTM dla Altcoinów) ---
+    {"symbol": "XRP", "pair": "XRPUSDT", "timeframe": "15m", "interval": 900, "decimals": 4, "offset": 0.0, "lag_sniper": {"id": "xrp_15m_ls_1771510001", "prog_bazowy": 0.0013, "prog_koncowka": 0.0002, "czas_koncowki": 90, "lag_tol": 0.1, "max_cena": 0.98, "wr": 85.7}, "momentum": {"id": "xrp_15m_mom_1771510002", "delta": 0.0002, "max_p": 0.77, "win_start": 64, "win_end": 30, "wr": 100.0}, "mid_arb": {"id": "xrp_15m_arb_1771510003", "delta": 0.0002, "max_p": 0.53, "win_start": 190, "win_end": 30, "wr": 83.3}},
+    {"symbol": "BTC", "pair": "BTCUSDT", "timeframe": "15m", "interval": 900, "decimals": 2, "offset": 0.0, "lag_sniper": {"id": "btc_15m_ls_1771510005", "prog_bazowy": 29, "prog_koncowka": 6, "czas_koncowki": 80, "lag_tol": 0.1, "max_cena": 0.96, "wr": 75.9}, "momentum": {"id": "btc_15m_mom_1771510006", "delta": 15, "max_p": 0.83, "win_start": 76, "win_end": 36, "wr": 76.9}, "mid_arb": {"id": "btc_15m_arb_1771510007", "delta": 7, "max_p": 0.57, "win_start": 190, "win_end": 65, "wr": 71.4}, "otm": {"id": "btc_15m_otm_1771510008", "win_start": 70, "win_end": 46, "max_p": 0.03, "wr": 50.0}},
+    {"symbol": "ETH", "pair": "ETHUSDT", "timeframe": "15m", "interval": 900, "decimals": 2, "offset": 0.0, "lag_sniper": {"id": "eth_15m_ls_1771510009", "prog_bazowy": 1.6, "prog_koncowka": 0.5, "czas_koncowki": 90, "lag_tol": 0.15, "max_cena": 0.98, "wr": 81.8}, "momentum": {"id": "eth_15m_mom_1771510010", "delta": 0.7, "max_p": 0.85, "win_start": 76, "win_end": 30, "wr": 100.0}, "mid_arb": {"id": "eth_15m_arb_1771510011", "delta": 0.5, "max_p": 0.59, "win_start": 190, "win_end": 90, "wr": 100.0}},
+    {"symbol": "SOL", "pair": "SOLUSDT", "timeframe": "15m", "interval": 900, "decimals": 3, "offset": 0.0, "lag_sniper": {"id": "sol_15m_ls_1771510013", "prog_bazowy": 0.05, "prog_koncowka": 0.02, "czas_koncowki": 50, "lag_tol": 0.05, "max_cena": 0.98, "wr": 69.2}, "momentum": {"id": "sol_15m_mom_1771510014", "delta": 0.08, "max_p": 0.85, "win_start": 68, "win_end": 46, "wr": 100.0}, "mid_arb": {"id": "sol_15m_arb_1771510015", "delta": 0.01, "max_p": 0.45, "win_start": 120, "win_end": 30, "wr": 50.0}},
     
-    # --- RYNKI 5 MINUTOWE (Dopasowane delty i progi) ---
-    {"symbol": "BTC", "pair": "BTCUSDT", "timeframe": "5m", "interval": 300, "decimals": 2, "offset": 0.0, "lag_sniper": {"prog_bazowy": 16, "prog_koncowka": 8, "czas_koncowki": 90, "lag_tol": 0.15, "max_cena": 0.92, "wr": 68.8}, "momentum": {"delta": 16, "max_p": 0.65, "win_start": 70, "win_end": 50, "wr": 69.4}, "mid_arb": {"delta": 12, "max_p": 0.49, "win_start": 120, "win_end": 30, "wr": 52.5}, "otm": {"win_start": 58, "win_end": 24, "max_p": 0.06, "wr": 15.0}},
-    {"symbol": "ETH", "pair": "ETHUSDT", "timeframe": "5m", "interval": 300, "decimals": 2, "offset": 0.0, "lag_sniper": {"prog_bazowy": 1.0, "prog_koncowka": 0.3, "czas_koncowki": 90, "lag_tol": 0.15, "max_cena": 0.92, "wr": 65.0}, "momentum": {"delta": 1.0, "max_p": 0.65, "win_start": 70, "win_end": 50, "wr": 65.0}, "mid_arb": {"delta": 0.6, "max_p": 0.49, "win_start": 120, "win_end": 30, "wr": 50.0}, "otm": {"win_start": 58, "win_end": 24, "max_p": 0.06, "wr": 15.0}},
-    {"symbol": "SOL", "pair": "SOLUSDT", "timeframe": "5m", "interval": 300, "decimals": 3, "offset": 0.0, "lag_sniper": {"prog_bazowy": 0.04, "prog_koncowka": 0.015, "czas_koncowki": 90, "lag_tol": 0.05, "max_cena": 0.92, "wr": 62.0}, "momentum": {"delta": 0.05, "max_p": 0.65, "win_start": 70, "win_end": 50, "wr": 65.0}, "mid_arb": {"delta": 0.02, "max_p": 0.49, "win_start": 120, "win_end": 30, "wr": 50.0}, "otm": {"win_start": 58, "win_end": 24, "max_p": 0.06, "wr": 15.0}},
-    {"symbol": "XRP", "pair": "XRPUSDT", "timeframe": "5m", "interval": 300, "decimals": 4, "offset": 0.0, "lag_sniper": {"prog_bazowy": 0.0008, "prog_koncowka": 0.0001, "czas_koncowki": 90, "lag_tol": 0.1, "max_cena": 0.92, "wr": 70.0}, "momentum": {"delta": 0.0005, "max_p": 0.65, "win_start": 70, "win_end": 50, "wr": 70.0}, "mid_arb": {"delta": 0.0003, "max_p": 0.49, "win_start": 120, "win_end": 30, "wr": 55.0}, "otm": {"win_start": 58, "win_end": 24, "max_p": 0.06, "wr": 20.0}},
+    # --- RYNKI 5 MINUTOWE (Oryginalne OTM aktywne - świetne wyniki) ---
+    {"symbol": "BTC", "pair": "BTCUSDT", "timeframe": "5m", "interval": 300, "decimals": 2, "offset": 0.0, "lag_sniper": {"id": "btc_5m_ls_1771510017", "prog_bazowy": 16, "prog_koncowka": 8, "czas_koncowki": 90, "lag_tol": 0.15, "max_cena": 0.92, "wr": 68.8}, "momentum": {"id": "btc_5m_mom_1771510018", "delta": 16, "max_p": 0.65, "win_start": 70, "win_end": 50, "wr": 69.4}, "mid_arb": {"id": "btc_5m_arb_1771510019", "delta": 12, "max_p": 0.49, "win_start": 120, "win_end": 30, "wr": 52.5}, "otm": {"id": "btc_5m_otm_1771510020", "win_start": 58, "win_end": 24, "max_p": 0.06, "wr": 15.0}},
+    {"symbol": "ETH", "pair": "ETHUSDT", "timeframe": "5m", "interval": 300, "decimals": 2, "offset": 0.0, "lag_sniper": {"id": "eth_5m_ls_1771510021", "prog_bazowy": 1.0, "prog_koncowka": 0.3, "czas_koncowki": 90, "lag_tol": 0.15, "max_cena": 0.92, "wr": 65.0}, "momentum": {"id": "eth_5m_mom_1771510022", "delta": 1.0, "max_p": 0.65, "win_start": 70, "win_end": 50, "wr": 65.0}, "mid_arb": {"id": "eth_5m_arb_1771510023", "delta": 0.6, "max_p": 0.49, "win_start": 120, "win_end": 30, "wr": 50.0}, "otm": {"id": "eth_5m_otm_1771510024", "win_start": 58, "win_end": 24, "max_p": 0.06, "wr": 15.0}},
+    {"symbol": "SOL", "pair": "SOLUSDT", "timeframe": "5m", "interval": 300, "decimals": 3, "offset": 0.0, "lag_sniper": {"id": "sol_5m_ls_1771510025", "prog_bazowy": 0.04, "prog_koncowka": 0.015, "czas_koncowki": 90, "lag_tol": 0.05, "max_cena": 0.92, "wr": 62.0}, "momentum": {"id": "sol_5m_mom_1771510026", "delta": 0.05, "max_p": 0.65, "win_start": 70, "win_end": 50, "wr": 65.0}, "mid_arb": {"id": "sol_5m_arb_1771510027", "delta": 0.02, "max_p": 0.49, "win_start": 120, "win_end": 30, "wr": 50.0}, "otm": {"id": "sol_5m_otm_1771510028", "win_start": 58, "win_end": 24, "max_p": 0.06, "wr": 15.0}},
+    {"symbol": "XRP", "pair": "XRPUSDT", "timeframe": "5m", "interval": 300, "decimals": 4, "offset": 0.0, "lag_sniper": {"id": "xrp_5m_ls_1771510029", "prog_bazowy": 0.0008, "prog_koncowka": 0.0001, "czas_koncowki": 90, "lag_tol": 0.1, "max_cena": 0.92, "wr": 70.0}, "momentum": {"id": "xrp_5m_mom_1771510030", "delta": 0.0005, "max_p": 0.65, "win_start": 70, "win_end": 50, "wr": 70.0}, "mid_arb": {"id": "xrp_5m_arb_1771510031", "delta": 0.0003, "max_p": 0.49, "win_start": 120, "win_end": 30, "wr": 55.0}, "otm": {"id": "xrp_5m_otm_1771510032", "win_start": 58, "win_end": 24, "max_p": 0.06, "wr": 20.0}},
     
-    # --- RYNKI 1-GODZINNE ---
-    {"symbol": "XRP", "pair": "XRPUSDT", "timeframe": "1h", "interval": 3600, "decimals": 4, "offset": 0.0, "lag_sniper": {"prog_bazowy": 0.0013, "prog_koncowka": 0.0002, "czas_koncowki": 90, "lag_tol": 0.1, "max_cena": 0.98, "wr": 85.7}, "momentum": {"delta": 0.0002, "max_p": 0.77, "win_start": 64, "win_end": 30, "wr": 100.0}, "mid_arb": {"delta": 0.0002, "max_p": 0.53, "win_start": 190, "win_end": 30, "wr": 83.3}, "otm": {"win_start": 50, "win_end": 22, "max_p": 0.06, "wr": 80.0}},
-    {"symbol": "BTC", "pair": "BTCUSDT", "timeframe": "1h", "interval": 3600, "decimals": 2, "offset": 0.0, "lag_sniper": {"prog_bazowy": 29, "prog_koncowka": 6, "czas_koncowki": 80, "lag_tol": 0.1, "max_cena": 0.96, "wr": 75.9}, "momentum": {"delta": 15, "max_p": 0.83, "win_start": 76, "win_end": 36, "wr": 76.9}, "mid_arb": {"delta": 7, "max_p": 0.57, "win_start": 190, "win_end": 65, "wr": 71.4}, "otm": {"win_start": 70, "win_end": 46, "max_p": 0.03, "wr": 50.0}},
-    {"symbol": "ETH", "pair": "ETHUSDT", "timeframe": "1h", "interval": 3600, "decimals": 2, "offset": 0.0, "lag_sniper": {"prog_bazowy": 1.6, "prog_koncowka": 0.5, "czas_koncowki": 90, "lag_tol": 0.15, "max_cena": 0.98, "wr": 81.8}, "momentum": {"delta": 0.7, "max_p": 0.85, "win_start": 76, "win_end": 30, "wr": 100.0}, "mid_arb": {"delta": 0.5, "max_p": 0.59, "win_start": 190, "win_end": 90, "wr": 100.0}, "otm": {"win_start": 50, "win_end": 20, "max_p": 0.04, "wr": 38.5}},
-    {"symbol": "SOL", "pair": "SOLUSDT", "timeframe": "1h", "interval": 3600, "decimals": 3, "offset": 0.0, "lag_sniper": {"prog_bazowy": 0.05, "prog_koncowka": 0.02, "czas_koncowki": 50, "lag_tol": 0.05, "max_cena": 0.98, "wr": 69.2}, "momentum": {"delta": 0.08, "max_p": 0.85, "win_start": 68, "win_end": 46, "wr": 100.0}, "mid_arb": {"delta": 0.01, "max_p": 0.45, "win_start": 120, "win_end": 30, "wr": 50.0}, "otm": {"win_start": 74, "win_end": 50, "max_p": 0.02, "wr": 25.0}}
+    # --- RYNKI 1-GODZINNE (Wyłączono całkowicie OTM) ---
+    {"symbol": "XRP", "pair": "XRPUSDT", "timeframe": "1h", "interval": 3600, "decimals": 4, "offset": 0.0, "lag_sniper": {"id": "xrp_1h_ls_1771510033", "prog_bazowy": 0.0013, "prog_koncowka": 0.0002, "czas_koncowki": 90, "lag_tol": 0.1, "max_cena": 0.98, "wr": 85.7}, "momentum": {"id": "xrp_1h_mom_1771510034", "delta": 0.0002, "max_p": 0.77, "win_start": 64, "win_end": 30, "wr": 100.0}, "mid_arb": {"id": "xrp_1h_arb_1771510035", "delta": 0.0002, "max_p": 0.53, "win_start": 190, "win_end": 30, "wr": 83.3}},
+    {"symbol": "BTC", "pair": "BTCUSDT", "timeframe": "1h", "interval": 3600, "decimals": 2, "offset": 0.0, "lag_sniper": {"id": "btc_1h_ls_1771510037", "prog_bazowy": 29, "prog_koncowka": 6, "czas_koncowki": 80, "lag_tol": 0.1, "max_cena": 0.96, "wr": 75.9}, "momentum": {"id": "btc_1h_mom_1771510038", "delta": 15, "max_p": 0.83, "win_start": 76, "win_end": 36, "wr": 76.9}, "mid_arb": {"id": "btc_1h_arb_1771510039", "delta": 7, "max_p": 0.57, "win_start": 190, "win_end": 65, "wr": 71.4}},
+    {"symbol": "ETH", "pair": "ETHUSDT", "timeframe": "1h", "interval": 3600, "decimals": 2, "offset": 0.0, "lag_sniper": {"id": "eth_1h_ls_1771510041", "prog_bazowy": 1.6, "prog_koncowka": 0.5, "czas_koncowki": 90, "lag_tol": 0.15, "max_cena": 0.98, "wr": 81.8}, "momentum": {"id": "eth_1h_mom_1771510042", "delta": 0.7, "max_p": 0.85, "win_start": 76, "win_end": 30, "wr": 100.0}, "mid_arb": {"id": "eth_1h_arb_1771510043", "delta": 0.5, "max_p": 0.59, "win_start": 190, "win_end": 90, "wr": 100.0}},
+    {"symbol": "SOL", "pair": "SOLUSDT", "timeframe": "1h", "interval": 3600, "decimals": 3, "offset": 0.0, "lag_sniper": {"id": "sol_1h_ls_1771510045", "prog_bazowy": 0.05, "prog_koncowka": 0.02, "czas_koncowki": 50, "lag_tol": 0.05, "max_cena": 0.98, "wr": 69.2}, "momentum": {"id": "sol_1h_mom_1771510046", "delta": 0.08, "max_p": 0.85, "win_start": 68, "win_end": 46, "wr": 100.0}, "mid_arb": {"id": "sol_1h_arb_1771510047", "delta": 0.01, "max_p": 0.45, "win_start": 120, "win_end": 30, "wr": 50.0}}
 ]
 
 LOCAL_STATE = {
@@ -224,7 +225,7 @@ def calculate_dynamic_size(base_stake, win_rate, market_id):
             return 0.0 
     return size_usd
 
-def execute_trade(market_id, timeframe, strategy, direction, base_stake, price, symbol, win_rate):
+def execute_trade(market_id, timeframe, strategy, direction, base_stake, price, symbol, win_rate, strat_id=""):
     global PORTFOLIO_BALANCE
     
     if not AVAILABLE_TRADE_IDS:
@@ -246,9 +247,15 @@ def execute_trade(market_id, timeframe, strategy, direction, base_stake, price, 
     
     PORTFOLIO_BALANCE -= size_usd
     shares = size_usd / price
+    
+    # Naprawa błędu IntegrityError (Unikalny hash z czasem milisekundowym i UUID)
+    unique_suffix = uuid.uuid4().hex[:8]
+    trade_id = f"{market_id}_{len(PAPER_TRADES)}_{int(time.time() * 1000)}_{unique_suffix}"
+    
     trade = {
-        'id': f"{market_id}_{len(PAPER_TRADES)}_{int(time.time())}",
+        'id': trade_id,
         'short_id': short_id,
+        'strat_id': strat_id,
         'market_id': market_id, 'timeframe': timeframe, 'symbol': symbol,
         'strategy': strategy, 'direction': direction, 
         'entry_price': price, 'entry_time': datetime.now().isoformat(),
@@ -599,30 +606,30 @@ async def evaluate_strategies(trigger_source, pair_filter=None):
                 mid_arb_flag = f"mid_arb_{m_id}"
                 if m_cfg and m_cfg['win_end'] < sec_left < m_cfg['win_start'] and mid_arb_flag not in EXECUTED_STRAT[m_id]:
                     if adj_delta > m_cfg['delta'] and 0 < b_up <= m_cfg['max_p']:
-                        execute_trade(m_id, timeframe, "Mid-Game Arb", "UP", 2.0, b_up, symbol, m_cfg.get('wr', 50.0))
+                        execute_trade(m_id, timeframe, "Mid-Game Arb", "UP", 2.0, b_up, symbol, m_cfg.get('wr', 50.0), m_cfg.get('id', ''))
                         EXECUTED_STRAT[m_id].append(mid_arb_flag)
                     elif adj_delta < -m_cfg['delta'] and 0 < b_dn <= m_cfg['max_p']:
-                        execute_trade(m_id, timeframe, "Mid-Game Arb", "DOWN", 2.0, b_dn, symbol, m_cfg.get('wr', 50.0))
+                        execute_trade(m_id, timeframe, "Mid-Game Arb", "DOWN", 2.0, b_dn, symbol, m_cfg.get('wr', 50.0), m_cfg.get('id', ''))
                         EXECUTED_STRAT[m_id].append(mid_arb_flag)
                         
                 otm_cfg = config.get('otm', {})
                 otm_flag = f"otm_{m_id}"
-                if otm_cfg and otm_cfg['win_end'] <= sec_left <= otm_cfg['win_start'] and otm_flag not in EXECUTED_STRAT[m_id]:
+                if otm_cfg and otm_cfg.get('wr', 0.0) > 0.0 and otm_cfg['win_end'] <= sec_left <= otm_cfg['win_start'] and otm_flag not in EXECUTED_STRAT[m_id]:
                     if abs(adj_delta) < 40.0:
                         if 0 < b_up <= otm_cfg['max_p']:
-                            execute_trade(m_id, timeframe, "OTM Bargain", "UP", 1.0, b_up, symbol, otm_cfg.get('wr', 50.0))
+                            execute_trade(m_id, timeframe, "OTM Bargain", "UP", 1.0, b_up, symbol, otm_cfg.get('wr', 50.0), otm_cfg.get('id', ''))
                             EXECUTED_STRAT[m_id].append(otm_flag)
                         elif 0 < b_dn <= otm_cfg['max_p']:
-                            execute_trade(m_id, timeframe, "OTM Bargain", "DOWN", 1.0, b_dn, symbol, otm_cfg.get('wr', 50.0))
+                            execute_trade(m_id, timeframe, "OTM Bargain", "DOWN", 1.0, b_dn, symbol, otm_cfg.get('wr', 50.0), otm_cfg.get('id', ''))
                             EXECUTED_STRAT[m_id].append(otm_flag)
                             
                 mom_cfg = config.get('momentum', {})
                 if mom_cfg and mom_cfg['win_end'] <= sec_left <= mom_cfg['win_start'] and 'momentum' not in EXECUTED_STRAT[m_id]:
                     if adj_delta >= mom_cfg['delta'] and 0 < b_up <= mom_cfg['max_p']:
-                        execute_trade(m_id, timeframe, "1-Min Mom", "UP", 1.0, b_up, symbol, mom_cfg.get('wr', 50.0))
+                        execute_trade(m_id, timeframe, "1-Min Mom", "UP", 1.0, b_up, symbol, mom_cfg.get('wr', 50.0), mom_cfg.get('id', ''))
                         EXECUTED_STRAT[m_id].append('momentum')
                     elif adj_delta <= -mom_cfg['delta'] and 0 < b_dn <= mom_cfg['max_p']:
-                        execute_trade(m_id, timeframe, "1-Min Mom", "DOWN", 1.0, b_dn, symbol, mom_cfg.get('wr', 50.0))
+                        execute_trade(m_id, timeframe, "1-Min Mom", "DOWN", 1.0, b_dn, symbol, mom_cfg.get('wr', 50.0), mom_cfg.get('id', ''))
                         EXECUTED_STRAT[m_id].append('momentum')
                         
             if trigger_source == "BINANCE_TICK" and is_verified:
@@ -635,9 +642,9 @@ async def evaluate_strategies(trigger_source, pair_filter=None):
                     prog = sniper_cfg['prog_koncowka'] if sec_left <= sniper_cfg['czas_koncowki'] else sniper_cfg['prog_bazowy']
                     if 10 < sec_left < timing['interval_s'] - 5:
                         if asset_jump >= prog and abs(up_change) <= sniper_cfg['lag_tol'] and 0 < b_up <= sniper_cfg['max_cena']:
-                            execute_trade(m_id, timeframe, "Lag Sniper", "UP", 2.0, b_up, symbol, sniper_cfg.get('wr', 50.0))
+                            execute_trade(m_id, timeframe, "Lag Sniper", "UP", 2.0, b_up, symbol, sniper_cfg.get('wr', 50.0), sniper_cfg.get('id', ''))
                         elif asset_jump <= -prog and abs(dn_change) <= sniper_cfg['lag_tol'] and 0 < b_dn <= sniper_cfg['max_cena']:
-                            execute_trade(m_id, timeframe, "Lag Sniper", "DOWN", 2.0, b_dn, symbol, sniper_cfg.get('wr', 50.0))
+                            execute_trade(m_id, timeframe, "Lag Sniper", "DOWN", 2.0, b_dn, symbol, sniper_cfg.get('wr', 50.0), sniper_cfg.get('id', ''))
                             
                 m_data['prev_up'], m_data['prev_dn'] = b_up, b_dn
     except Exception as e:

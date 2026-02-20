@@ -1,29 +1,40 @@
 🚀 Watcher v10.27 | Enterprise HFT Polymarket Bot
-Watcher to zaawansowany system do handlu wysokiej częstotliwości (High-Frequency Trading) dla rynków opcji binarnych na platformie Polymarket. Wersja v10.27 rozszerza możliwości bota o jednoczesną obsługę 12 rynków w różnych interwałach czasowych (5m, 15m, 1h) oraz wprowadza inteligentne zarządzanie priorytetami weryfikacji.
+Watcher to zaawansowany system do handlu wysokiej częstotliwości (High-Frequency Trading) dla rynków opcji binarnych na platformie Polymarket. Wersja v10.27 łączy sprawdzoną, wysoką rentowność z nową architekturą bazy danych i priorytetyzacją zadań.
 
 🛠 Kluczowe Funkcje (v10.27)
-Multi-Market Engine: Równoległa obsługa 12 rynków dla BTC, ETH, SOL i XRP w interwałach 5m, 15m oraz 1h.
 
-Priority Verification Queue: System kolejkowania Playwrighta oparty na PriorityQueue. Rynki o krótkim czasie trwania (5m) otrzymują priorytet "P1", co eliminuje opóźnienia w ich weryfikacji.
+Multi-Market Performance: Równoległa obsługa 12 rynków (BTC, ETH, SOL, XRP) w interwałach 5m, 15m oraz 1h przy zachowaniu ultra-niskich opóźnień.
 
-Dynamic Slug Router: Automatyczne generowanie adresów URL dla rynków standardowych oraz SEO (np. rynki godzinowe), co pozwala na pracę ciągłą 24/7 bez interwencji człowieka.
 
-Smart ID Pool (0-99): Każda otwarta pozycja otrzymuje unikalny identyfikator z kontrolowanej puli, co umożliwia precyzyjne śledzenie transakcji i przygotowuje system pod sterowanie ręczne.
+Priority Verification Queue: Silnik Playwrighta z priorytetem "P1" dla rynków 5-minutowych, co eliminuje opóźnienia weryfikacji w krótkich oknach czasowych.
++1
 
-Integrated PnL Dashboard: Nowy interfejs ASCII wyświetlający drzewo operacji bezpośrednio pod każdym rynkiem, z kalkulacją zysku pływającego (Float PnL%) oraz zrealizowanego (Session PnL%).
 
-Advanced Circuit Breakers: Systemy ochrony kapitału: Max Drawdown (-30%), Market Exposure (15%) oraz Burst Guard (ochrona przed nadmiarem sygnałów).
+Alpha Vault (Historyczna Optymalizacja): Nowy moduł backtest_history.db rejestrujący każdą udaną optymalizację w formacie JSON, budujący bazę wiedzy pod przyszłe modele uczenia maszynowego.
++1
 
-📈 Filarowe Strategie (Grid-Optimized)
-System wykorzystuje cztery główne strategie, dostrojone za pomocą milionów symulacji w module Backtestera:
 
-Lag Sniper: Wykorzystuje milisekundowe opóźnienia między giełdą Binance a wyrocznią Polymarketu. Posiada dynamiczne progi czułości dla fazy bazowej i końcowej rynku.
+UUID Trade Security: Implementacja kryptograficznych skrótów UUID dla każdej transakcji, eliminująca błędy zapisu bazy danych (IntegrityError) przy jednoczesnych operacjach HFT.
++2
 
-1-Min Momentum: Agresywne podpięcie pod ukształtowany trend w ostatniej minucie trwania rynku.
 
-Mid-Game Arb: Arbitraż statystyczny w środkowej fazie rynku, wykorzystujący błędy w wycenie Market Makerów.
+Smart ID Pool (00-99): System zarządzania aktywnymi oknami pozycji z unikalnymi identyfikatorami widocznymi w terminalu.
++1
 
-OTM Bargain: Polowanie na skrajnie tanie opcje (2-5 centów) przy dużej zmienności (zablokowane dla rynków 1h ze względu na niski WinRate).
+📈 Strategie (Zoptymalizowane v10.27)
+System wykorzystuje dynamiczne progi dopasowane do specyfiki każdej waluty:
+
+
+Lag Sniper: Skalpowanie milisekundowych różnic kursowych między Binance a Polymarket.
+
+
+1-Min Momentum: Wykorzystanie pędu rynkowego w ostatniej fazie trwania kontraktu.
+
+
+Mid-Game Arb: Statystyczny arbitraż w środkowej fazie rynku.
+
+
+OTM Bargain: Selektywne polowanie na skrajnie tanie opcje (2-6 centów) na rynkach o wysokiej zmienności.
 
 ⚙️ Instalacja i Uruchomienie
 Szybki start (Docker):
@@ -38,19 +49,17 @@ docker run --rm -it -v "$(pwd)/data:/app/data" ai-trader
 📊 Analiza i Backtesting
 Watcher v10.27 dostarcza kompletne środowisko diagnostyczne:
 
-Analiza Post-Mortem: Uruchomienie backtester.py generuje szczegółowy raport z bazy trade_logs_v10, wskazując, która strategia na którym interwale generuje najwyższy profit.
 
-Grid Search: Silnik symuluje tysiące kombinacji parametrów na surowych danych Level 2 (market_logs_v11), aby wygenerować optymalne ustawienia dla pliku main.py.
+Analiza Post-Mortem: Raportowanie realnej skuteczności WinRate i PnL z bazy transakcji trade_logs_v10.
++2
+
+
+Grid Search: Symulacja milionów kombinacji na danych Level 2 (market_logs_v11) z automatycznym zapisem wyników do Alpha Vault.
++1
 
 Komenda do analizy:
 
 Bash
 docker run --rm -v "$(pwd)/data:/app/data" ai-trader python backtester.py
-⌨️ Obsługa Terminala
-q + Enter: Awaryjne zamknięcie wszystkich pozycji, zapis buforów RAM do SQLite i bezpieczne wyjście z systemu.
-
-⚠️ Zastrzeżenie (Disclaimer)
-To oprogramowanie służy wyłącznie do celów edukacyjnych i symulacji (Paper Trading). Autor nie ponosi odpowiedzialności za jakiekolwiek straty finansowe wynikające z użycia bota.
-
 Autor: Łukasz Balowski
 Wersja: 10.27 Enterprise Multi-Timeframe Edition

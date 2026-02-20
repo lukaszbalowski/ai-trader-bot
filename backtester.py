@@ -6,10 +6,52 @@ import time
 import itertools
 import os
 import json
+from datetime import datetime
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
 # ==========================================
-# 0. ANALIZA POST-MORTEM (TRADE LOGS)
+# 0A. ALPHA VAULT (HISTORIA OPTYMALIZACJI)
+# ==========================================
+def init_history_db(sciezka="data/backtest_history.db"):
+    """Inicjalizuje bazę danych dla historycznych testów (struktura z kolumną JSON)"""
+    os.makedirs("data", exist_ok=True)
+    conn = sqlite3.connect(sciezka)
+    conn.execute('''CREATE TABLE IF NOT EXISTS optimization_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        timestamp TEXT,
+        symbol TEXT,
+        timeframe TEXT,
+        strategy TEXT,
+        parameters TEXT,
+        pnl_usd REAL,
+        pnl_percent REAL,
+        win_rate REAL,
+        trades_count INTEGER
+    )''')
+    conn.commit()
+    conn.close()
+
+def save_optimization_result(symbol, timeframe, strategy, result_obj, sciezka="data/backtest_history.db"):
+    """Zapisuje najlepszy wynik z Grid Searcha do bazy w formie elastycznego JSONa"""
+    conn = sqlite3.connect(sciezka)
+    conn.execute('''INSERT INTO optimization_logs 
+        (timestamp, symbol, timeframe, strategy, parameters, pnl_usd, pnl_percent, win_rate, trades_count)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)''', (
+            datetime.now().isoformat(),
+            symbol,
+            timeframe,
+            strategy,
+            json.dumps(result_obj['p']), # Elastyczne parametry w formacie JSON
+            result_obj['pnl'],
+            result_obj['pnl_proc'],
+            result_obj['wr'],
+            result_obj['t']
+    ))
+    conn.commit()
+    conn.close()
+
+# ==========================================
+# 0B. ANALIZA POST-MORTEM (TRADE LOGS)
 # ==========================================
 def wykonaj_analize_post_mortem(sciezka_bazy="data/polymarket.db"):
     print("\n" + "="*80)
@@ -22,7 +64,6 @@ def wykonaj_analize_post_mortem(sciezka_bazy="data/polymarket.db"):
 
     try:
         conn = sqlite3.connect(sciezka_bazy)
-        # Sprawdzenie czy tabela z transakcjami istnieje
         cur = conn.cursor()
         cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='trade_logs_v10'")
         if not cur.fetchone():
@@ -37,29 +78,23 @@ def wykonaj_analize_post_mortem(sciezka_bazy="data/polymarket.db"):
             print("Brak historii transakcji w bazie.")
             return
 
-        # Ogólne podsumowanie
         total_pnl = df_trades['pnl'].sum()
         total_trades = len(df_trades)
         win_rate = (len(df_trades[df_trades['pnl'] > 0]) / total_trades) * 100 if total_trades > 0 else 0.0
         
         print(f"📊 Globalny PnL: {total_pnl:>+10.2f}$ | Łącznie zagrań: {total_trades} | Globalny WR: {win_rate:.1f}%\n")
-        
-        # Grupowanie i agregacja po Rynku (timeframe) i Strategii
         print(f"{'RYNEK':<12} | {'STRATEGIA':<16} | {'ZAGRAŃ':<6} | {'WR %':<6} | {'PNL ($)':<12}")
         print("-" * 65)
         
         grouped = df_trades.groupby(['timeframe', 'strategy'])
-        
         for (rynek, strategia), group in grouped:
             zagrań = len(group)
             zyskownych = len(group[group['pnl'] > 0])
             wr = (zyskownych / zagrań) * 100 if zagrań > 0 else 0.0
             pnl_sum = group['pnl'].sum()
             
-            # Kolorowanie w terminalu (opcjonalne, ale pomocne)
             color_start = "\033[32m" if pnl_sum > 0 else "\033[31m"
             color_end = "\033[0m"
-            
             print(f"{rynek:<12} | {strategia:<16} | {zagrań:<6} | {wr:>5.1f}% | {color_start}{pnl_sum:>+10.2f}${color_end}")
             
     except Exception as e:
@@ -73,7 +108,6 @@ def wczytaj_i_przygotuj_dane(sciezka_bazy="data/polymarket.db"):
         return pd.DataFrame()
         
     conn = sqlite3.connect(sciezka_bazy)
-    # Zabezpieczenie przed brakiem tabeli
     try:
         df = pd.read_sql_query("SELECT * FROM market_logs_v11 WHERE buy_up > 0 OR buy_down > 0 ORDER BY fetched_at ASC", conn)
     except Exception:
@@ -133,7 +167,6 @@ def symuluj_wyjscie_proste(r, idx_wejscia, kierunek, cena_zakupu, stawka, global
 # ==========================================
 # WORKERS & STRATEGIES
 # ==========================================
-
 def worker_lag_sniper(param_chunk, fast_markets):
     wyniki = []
     stawka = 2.0
@@ -193,7 +226,7 @@ def testuj_lag_sniper(df_rynki, symbol, interwal):
     p = w['p']
     print(f" 👑 TOP PnL: {w['pnl']:>+7.2f}$ ({w['pnl_proc']:>+6.2f}%) | WR: {w['wr']:>5.1f}% | T: {w['t']:>3}")
     print(f" ⚙️ Parametry: prog_bazowy={p['prog_bazowy']}, prog_koncowka={p['prog_koncowka']}, czas_koncowki={p['czas_koncowki']}s, lag_tol={p['lag_tol']}, max_cena={p['max_cena']}")
-    return p
+    return w # Zwracamy cały obiekt w celu zapisu do bazy
 
 def worker_1min_momentum(param_chunk, fast_markets):
     wyniki = []
@@ -258,7 +291,7 @@ def testuj_1min_momentum(df_rynki, symbol, interwal):
     p = w['p']
     print(f" 👑 TOP PnL: {w['pnl']:>+7.2f}$ ({w['pnl_proc']:>+6.2f}%) | WR: {w['wr']:>5.1f}% | T: {w['t']:>3}")
     print(f" ⚙️ Parametry: delta={p['delta']}, max_p={p['max_p']}, okno={p['win_start']}s->{p['win_end']}s")
-    return p
+    return w
 
 def worker_mid_arb(param_chunk, fast_markets):
     wyniki = []
@@ -311,7 +344,7 @@ def testuj_mid_game_arb(df_rynki, symbol, interwal):
     p = w['p']
     print(f" 👑 TOP PnL: {w['pnl']:>+7.2f}$ ({w['pnl_proc']:>+6.2f}%) | WR: {w['wr']:>5.1f}% | T: {w['t']:>3}")
     print(f" ⚙️ Parametry: delta={p['delta']}, max_p={p['max_p']}, okno={p['win_start']}s->{p['win_end']}s")
-    return p
+    return w
 
 def worker_otm(param_chunk, fast_markets):
     wyniki = []
@@ -370,16 +403,17 @@ def testuj_otm_bargain(df_rynki, symbol, interwal):
     p = w['p']
     print(f" 👑 TOP PnL: {w['pnl']:>+7.2f}$ ({w['pnl_proc']:>+6.2f}%) | WR: {w['wr']:>5.1f}% | T: {w['t']:>3}")
     print(f" ⚙️ Parametry: max_p={p['max_p']}, okno={p['win_start']}s->{p['win_end']}s")
-    return p
+    return w
 
 if __name__ == "__main__":
     import multiprocessing
     multiprocessing.freeze_support()
     
-    # KROK 1: Analiza zakończonych transakcji
+    # Inicjalizacja nowej bazy do zapisu historii optymalizacji
+    init_history_db()
+    
     wykonaj_analize_post_mortem()
     
-    # KROK 2: Klasyczny proces Optymalizacji (Wektoryzacja)
     print("\n⏳ Wczytywanie bazy danych SQLite (v11) i formatowanie danych Numpy do symulacji...")
     time_s = time.time()
     dane_historyczne = wczytaj_i_przygotuj_dane()
@@ -400,17 +434,29 @@ if __name__ == "__main__":
             
             optymalizacje[rynek] = {}
             
+            # --- LAG SNIPER ---
             best_lag = testuj_lag_sniper(d_int, symbol, interwal)
-            if best_lag: optymalizacje[rynek]['lag_sniper'] = best_lag
+            if best_lag: 
+                save_optimization_result(symbol, interwal, "lag_sniper", best_lag)
+                optymalizacje[rynek]['lag_sniper'] = best_lag['p']
             
+            # --- MOMENTUM ---
             best_mom = testuj_1min_momentum(d_int, symbol, interwal)
-            if best_mom: optymalizacje[rynek]['momentum'] = best_mom
+            if best_mom: 
+                save_optimization_result(symbol, interwal, "momentum", best_mom)
+                optymalizacje[rynek]['momentum'] = best_mom['p']
             
+            # --- MID ARB ---
             best_arb = testuj_mid_game_arb(d_int, symbol, interwal)
-            if best_arb: optymalizacje[rynek]['mid_arb'] = best_arb
+            if best_arb: 
+                save_optimization_result(symbol, interwal, "mid_arb", best_arb)
+                optymalizacje[rynek]['mid_arb'] = best_arb['p']
             
+            # --- OTM BARGAIN ---
             best_otm = testuj_otm_bargain(d_int, symbol, interwal)
-            if best_otm: optymalizacje[rynek]['otm'] = best_otm
+            if best_otm: 
+                save_optimization_result(symbol, interwal, "otm", best_otm)
+                optymalizacje[rynek]['otm'] = best_otm['p']
             
         with open('data/optimized_configs.json', 'w', encoding='utf-8') as f:
             json.dump(optymalizacje, f, indent=4)
@@ -423,7 +469,6 @@ if __name__ == "__main__":
         for rynek, strats in optymalizacje.items():
             symbol, interwal = rynek.split('_')
             
-            # Dynamiczne przypisywanie poprawnych decymali (zgodnie z v10.22)
             decimals = 2
             if symbol == 'SOL': decimals = 3
             if symbol == 'XRP': decimals = 4
@@ -439,7 +484,6 @@ if __name__ == "__main__":
                 "offset": 0.0,
             }
             
-            # Filtrowanie kluczy technicznych backtestera (g_sec, max_delta_abs)
             if 'lag_sniper' in strats:
                 cfg['lag_sniper'] = {k: v for k, v in strats['lag_sniper'].items() if k not in ['g_sec', 'max_delta_abs']}
             if 'momentum' in strats:
@@ -451,9 +495,7 @@ if __name__ == "__main__":
             
             tracked_configs.append(cfg)
             
-        # Generowanie formatu Python
         config_str = json.dumps(tracked_configs, indent=4)
         config_str = config_str.replace("null", "None").replace("true", "True").replace("false", "False")
         
         print(f"TRACKED_CONFIGS = {config_str}")
-        print("\n✅ Skopiuj powyższy blok i podmień nim TRACKED_CONFIGS w swoim pliku main.py!")
