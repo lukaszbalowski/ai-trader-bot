@@ -13,7 +13,6 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 # 0A. ALPHA VAULT (HISTORIA OPTYMALIZACJI)
 # ==========================================
 def init_history_db(sciezka="data/backtest_history.db"):
-    """Inicjalizuje bazę danych dla historycznych testów (struktura z kolumną JSON)"""
     os.makedirs("data", exist_ok=True)
     conn = sqlite3.connect(sciezka)
     conn.execute('''CREATE TABLE IF NOT EXISTS optimization_logs (
@@ -32,40 +31,56 @@ def init_history_db(sciezka="data/backtest_history.db"):
     conn.close()
 
 def save_optimization_result(symbol, timeframe, strategy, result_obj, sciezka="data/backtest_history.db"):
-    """Zapisuje najlepszy wynik z Grid Searcha do bazy w formie elastycznego JSONa"""
     conn = sqlite3.connect(sciezka)
     conn.execute('''INSERT INTO optimization_logs 
         (timestamp, symbol, timeframe, strategy, parameters, pnl_usd, pnl_percent, win_rate, trades_count)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)''', (
-            datetime.now().isoformat(),
-            symbol,
-            timeframe,
-            strategy,
-            json.dumps(result_obj['p']), # Elastyczne parametry w formacie JSON
-            result_obj['pnl'],
-            result_obj['pnl_proc'],
-            result_obj['wr'],
-            result_obj['t']
+        datetime.now().isoformat(),
+        symbol,
+        timeframe,
+        strategy,
+        json.dumps(result_obj['p']),  
+        result_obj['pnl'],
+        result_obj['pnl_proc'],
+        result_obj['wr'],
+        result_obj['t']
     ))
     conn.commit()
     conn.close()
+
+def get_top_3_historical(symbol, timeframe, strategy, sciezka="data/backtest_history.db"):
+    if not os.path.exists(sciezka):
+        return []
+    try:
+        conn = sqlite3.connect(sciezka)
+        cur = conn.cursor()
+        cur.execute('''SELECT timestamp, win_rate, pnl_percent, parameters 
+                       FROM optimization_logs 
+                       WHERE symbol=? AND timeframe=? AND strategy=? 
+                       ORDER BY win_rate DESC, pnl_percent DESC LIMIT 3''', (symbol, timeframe, strategy))
+        rows = cur.fetchall()
+        conn.close()
+        return rows
+    except Exception:
+        return []
 
 # ==========================================
 # 0B. ANALIZA POST-MORTEM (TRADE LOGS)
 # ==========================================
 def wykonaj_analize_post_mortem(sciezka_bazy="data/polymarket.db"):
-    print("\n" + "="*80)
+    print("\n" + "=" * 80)
     print(" 🕵️ ANALIZA POST-MORTEM (WYNIKI HISTORYCZNE TRANSAKCJI) ")
-    print("="*80)
+    print("=" * 80)
     
     if not os.path.exists(sciezka_bazy):
         print("Brak pliku bazy danych. Pomięcie analizy Post-Mortem.")
         return
-
+        
     try:
         conn = sqlite3.connect(sciezka_bazy)
         cur = conn.cursor()
         cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='trade_logs_v10'")
+        
         if not cur.fetchone():
             print("Tabela trade_logs_v10 jest pusta lub nie istnieje. Pomięcie analizy.")
             conn.close()
@@ -77,7 +92,7 @@ def wykonaj_analize_post_mortem(sciezka_bazy="data/polymarket.db"):
         if df_trades.empty:
             print("Brak historii transakcji w bazie.")
             return
-
+            
         total_pnl = df_trades['pnl'].sum()
         total_trades = len(df_trades)
         win_rate = (len(df_trades[df_trades['pnl'] > 0]) / total_trades) * 100 if total_trades > 0 else 0.0
@@ -114,9 +129,10 @@ def wczytaj_i_przygotuj_dane(sciezka_bazy="data/polymarket.db"):
         df = pd.DataFrame()
     finally:
         conn.close()
-    
+        
     if df.empty: return df
-    df['fetched_at'] = pd.to_datetime(df['fetched_at'])
+
+    df['fetched_at'] = pd.to_datetime(df['fetched_at'], format='ISO8601')
     
     max_times = df.groupby('market_id')['fetched_at'].transform('max')
     df['sec_left'] = (max_times - df['fetched_at']).dt.total_seconds()
@@ -159,10 +175,75 @@ def symuluj_wyjscie_proste(r, idx_wejscia, kierunek, cena_zakupu, stawka, global
     for j in range(idx_wejscia + 1, len(r['sec_left'])):
         sec_left = r['sec_left'][j]
         current_bid = r['s_up'][j] if kierunek == 'UP' else r['s_dn'][j]
+        
         if sec_left <= global_sec_rule and current_bid > cena_zakupu:
             return (current_bid * udzialy) - stawka
+            
     wygrana = r['won_up'] if kierunek == 'UP' else not r['won_up']
     return (1.0 * udzialy - stawka) if wygrana else -stawka
+
+# ==========================================
+# WSPÓŁDZIELONA FUNKCJA PROGRESS BAR & DB CHECK
+# ==========================================
+def display_results_and_compare(w, symbol, interwal, strategy_name):
+    if not w: return
+    p = w['p']
+    
+    print(f"\n   👑 TOP OBECNEGO TESTU: {w['pnl']:>+7.2f}$ ({w['pnl_proc']:>+6.2f}%) | WR: {w['wr']:>5.1f}% | T: {w['t']:>3}")
+    
+    param_str = ", ".join([f"{k}={v}" for k, v in p.items() if k not in ['g_sec', 'id', 'max_delta_abs']])
+    print(f"   ⚙️ Parametry: {param_str}")
+    print(f"   🔑 Identyfikator w bazie: {p['id']}")
+    
+    top_3 = get_top_3_historical(symbol, interwal, strategy_name)
+    print("   🏆 TOP 3 HISTORYCZNE (Wg WinRate):")
+    if not top_3:
+        print("      Brak historycznych zapisów. Ta strategia ustanawia pierwszy rekord.")
+    else:
+        for idx, row in enumerate(top_3):
+            ts, wr, pnl_proc, params_str = row
+            try:
+                params_json = json.loads(params_str)
+                hist_id = params_json.get('id', 'Brak ID')
+                # Wyodrębnienie i formatowanie parametrów dla historii
+                hist_clean_params = {k: v for k, v in params_json.items() if k not in ['g_sec', 'id', 'max_delta_abs']}
+                hist_param_str = ", ".join([f"{k}={v}" for k, v in hist_clean_params.items()])
+            except:
+                hist_id = "Brak ID"
+                hist_param_str = "Brak danych"
+                
+            date_str = ts[:10]
+            print(f"      {idx+1}. WR: {wr:>5.1f}% | PnL: {pnl_proc:>+6.2f}% | ID: {hist_id} (Data: {date_str})")
+            print(f"         ⚙️ Parametry: {hist_param_str}")
+
+def execute_with_progress(worker_func, kombinacje, fast_markets, num_cores):
+    chunk_size = max(1, len(kombinacje) // (num_cores * 4))
+    chunks = [kombinacje[i:i + chunk_size] for i in range(0, len(kombinacje), chunk_size)]
+    
+    najlepsze = []
+    print("   ⏳ Postęp testu: 0%", end="", flush=True)
+    
+    total_chunks = len(chunks)
+    
+    with ProcessPoolExecutor(max_workers=num_cores) as executor:
+        futures = [executor.submit(worker_func, chunk, fast_markets) for chunk in chunks]
+        completed = 0
+        last_printed_pct = 0
+        
+        for f in as_completed(futures):
+            najlepsze.extend(f.result())
+            completed += 1
+            pct = int((completed / total_chunks) * 100)
+            
+            # Płynne kroki co 10%
+            if pct - last_printed_pct >= 10 or completed == total_chunks:
+                step = (pct // 10) * 10
+                if step > last_printed_pct:
+                    print(f" ➡️ {step}%", end="", flush=True)
+                    last_printed_pct = step
+                
+    print(" ✅ Gotowe!", flush=True)
+    return najlepsze
 
 # ==========================================
 # WORKERS & STRATEGIES
@@ -182,28 +263,30 @@ def worker_lag_sniper(param_chunk, fast_markets):
                     wejscie = ('UP', r['b_up'][j])
                 elif r['skok_btc'][j] <= -prog and r['zmiana_down'][j] <= p['lag_tol'] and 0 < r['b_dn'][j] <= p['max_cena']:
                     wejscie = ('DOWN', r['b_dn'][j])
-                
+                    
                 if wejscie:
                     pnl_transakcji = symuluj_wyjscie_proste(r, j, wejscie[0], wejscie[1], stawka, p['g_sec'])
                     calkowity_pnl += pnl_transakcji
                     transakcje += 1
                     if pnl_transakcji > 0: wygrane += 1
                     break
+                    
         if transakcje > 0:
             pnl_proc = (calkowity_pnl / (transakcje * stawka)) * 100
             wyniki.append({'p': p, 'pnl': calkowity_pnl, 'pnl_proc': pnl_proc, 'wr': (wygrane/transakcje)*100, 't': transakcje})
     return wyniki
 
 def testuj_lag_sniper(df_rynki, symbol, interwal):
-    print(f"\n" + "="*80)
-    print(f" 🎯 LAG SNIPER | {symbol} {interwal} | Gęsta Siatka")
+    strat_id = f"{symbol.lower()}_{interwal}_ls_{int(time.time())}"
+    print(f"\n" + "=" * 80)
+    print(f" 🎯 LAG SNIPER | {symbol} {interwal}")
     
     if symbol == "BTC": pb_list, pk_list = list(range(15, 36)), list(range(5, 21))
     elif symbol == "ETH": pb_list, pk_list = [x/10.0 for x in range(10, 31, 2)], [x/10.0 for x in range(5, 16, 2)]
     elif symbol == "SOL": pb_list, pk_list = [x/100.0 for x in range(5, 21)], [x/100.0 for x in range(2, 11)]
     elif symbol == "XRP": pb_list, pk_list = [x/10000.0 for x in range(5, 21)], [x/10000.0 for x in range(2, 11)]
     else: pb_list, pk_list = [10.0], [5.0]
-
+    
     kombinacje = [
         {'prog_bazowy': pb, 'prog_koncowka': pk, 'czas_koncowki': ck, 'lag_tol': lt, 'max_cena': mc, 'g_sec': 2.0}
         for pb in pb_list for pk in pk_list for ck in range(30, 91, 5)
@@ -211,22 +294,21 @@ def testuj_lag_sniper(df_rynki, symbol, interwal):
         if pk <= pb
     ]
     
+    ticks_count = len(df_rynki)
+    print(f"   📊 Wolumen Danych: {len(kombinacje)} kombinacji siatki | {ticks_count} ticków z arkusza L2")
+    
     fast_markets = prepare_fast_markets(df_rynki)
     num_cores = os.cpu_count() or 4
-    chunks = [kombinacje[i:i + len(kombinacje)//num_cores + 1] for i in range(0, len(kombinacje), len(kombinacje)//num_cores + 1)]
-    najlepsze = []
     
-    with ProcessPoolExecutor(max_workers=num_cores) as executor:
-        futures = [executor.submit(worker_lag_sniper, chunk, fast_markets) for chunk in chunks]
-        for f in as_completed(futures): najlepsze.extend(f.result())
-            
+    najlepsze = execute_with_progress(worker_lag_sniper, kombinacje, fast_markets, num_cores)
     if not najlepsze: return None
+    
     najlepsze.sort(key=lambda x: x['pnl'], reverse=True)
     w = najlepsze[0]
-    p = w['p']
-    print(f" 👑 TOP PnL: {w['pnl']:>+7.2f}$ ({w['pnl_proc']:>+6.2f}%) | WR: {w['wr']:>5.1f}% | T: {w['t']:>3}")
-    print(f" ⚙️ Parametry: prog_bazowy={p['prog_bazowy']}, prog_koncowka={p['prog_koncowka']}, czas_koncowki={p['czas_koncowki']}s, lag_tol={p['lag_tol']}, max_cena={p['max_cena']}")
-    return w # Zwracamy cały obiekt w celu zapisu do bazy
+    w['p']['id'] = strat_id
+    
+    display_results_and_compare(w, symbol, interwal, "lag_sniper")
+    return w
 
 def worker_1min_momentum(param_chunk, fast_markets):
     wyniki = []
@@ -240,7 +322,6 @@ def worker_1min_momentum(param_chunk, fast_markets):
             for j in range(len(r['sec_left'])):
                 if r['sec_left'][j] > p['win_start']: continue
                 if r['sec_left'][j] < p['win_end']: break
-                
                 delta = r['live'][j] - r['target']
                 if delta >= p['delta'] and 0 < r['b_up'][j] <= p['max_p']:
                     idx_wejscia = j; wejscie_typ = 'UP'; wejscie_cena = r['b_up'][j]
@@ -259,15 +340,16 @@ def worker_1min_momentum(param_chunk, fast_markets):
     return wyniki
 
 def testuj_1min_momentum(df_rynki, symbol, interwal):
-    print(f"\n" + "="*80)
-    print(f" 🚀 1-MINUTE MOMENTUM | {symbol} {interwal} | Gęsta Siatka")
+    strat_id = f"{symbol.lower()}_{interwal}_mom_{int(time.time())}"
+    print(f"\n" + "=" * 80)
+    print(f" 🚀 1-MINUTE MOMENTUM | {symbol} {interwal}")
     
     if symbol == "BTC": d_list = list(range(15, 41))
     elif symbol == "ETH": d_list = [x/10.0 for x in range(5, 26)]
     elif symbol == "SOL": d_list = [x/100.0 for x in range(2, 16)]
     elif symbol == "XRP": d_list = [x/10000.0 for x in range(2, 16)]
     else: d_list = [10.0]
-
+    
     kombinacje = [
         {'delta': d, 'max_p': m_p, 'win_start': ws, 'win_end': we, 'g_sec': 2.0}
         for d in d_list for m_p in [x / 100.0 for x in range(65, 86)]
@@ -275,22 +357,21 @@ def testuj_1min_momentum(df_rynki, symbol, interwal):
         if ws > we + 5
     ]
     
+    ticks_count = len(df_rynki)
+    print(f"   📊 Wolumen Danych: {len(kombinacje)} kombinacji siatki | {ticks_count} ticków z arkusza L2")
+    
     fast_markets = prepare_fast_markets(df_rynki)
     num_cores = os.cpu_count() or 4
     random.shuffle(kombinacje)
-    chunks = [kombinacje[i:i + len(kombinacje)//num_cores + 1] for i in range(0, len(kombinacje), len(kombinacje)//num_cores + 1)]
-    najlepsze = []
     
-    with ProcessPoolExecutor(max_workers=num_cores) as executor:
-        futures = [executor.submit(worker_1min_momentum, chunk, fast_markets) for chunk in chunks]
-        for f in as_completed(futures): najlepsze.extend(f.result())
-            
+    najlepsze = execute_with_progress(worker_1min_momentum, kombinacje, fast_markets, num_cores)
     if not najlepsze: return None
+    
     najlepsze.sort(key=lambda x: x['pnl'], reverse=True)
     w = najlepsze[0]
-    p = w['p']
-    print(f" 👑 TOP PnL: {w['pnl']:>+7.2f}$ ({w['pnl_proc']:>+6.2f}%) | WR: {w['wr']:>5.1f}% | T: {w['t']:>3}")
-    print(f" ⚙️ Parametry: delta={p['delta']}, max_p={p['max_p']}, okno={p['win_start']}s->{p['win_end']}s")
+    w['p']['id'] = strat_id
+    
+    display_results_and_compare(w, symbol, interwal, "momentum")
     return w
 
 def worker_mid_arb(param_chunk, fast_markets):
@@ -307,7 +388,7 @@ def worker_mid_arb(param_chunk, fast_markets):
                         wejscie = ('UP', r['b_up'][j])
                     elif delta < -p['delta'] and 0 < r['b_dn'][j] <= p['max_p']:
                         wejscie = ('DOWN', r['b_dn'][j])
-                    
+                        
                     if wejscie:
                         pnl_transakcji = symuluj_wyjscie_proste(r, j, wejscie[0], wejscie[1], stawka, p['g_sec'])
                         calkowity_pnl += pnl_transakcji
@@ -320,15 +401,16 @@ def worker_mid_arb(param_chunk, fast_markets):
     return wyniki
 
 def testuj_mid_game_arb(df_rynki, symbol, interwal):
-    print(f"\n" + "="*80)
-    print(f" ⚖️ MID-GAME ARB | {symbol} {interwal} | Gęsta Siatka")
+    strat_id = f"{symbol.lower()}_{interwal}_arb_{int(time.time())}"
+    print(f"\n" + "=" * 80)
+    print(f" ⚖️ MID-GAME ARB | {symbol} {interwal}")
     
     if symbol == "BTC": d_list = list(range(5, 21))
     elif symbol == "ETH": d_list = [x/10.0 for x in range(3, 11)]
     elif symbol == "SOL": d_list = [x/100.0 for x in range(1, 6)]
     elif symbol == "XRP": d_list = [x/10000.0 for x in range(1, 6)]
     else: d_list = [5.0]
-
+    
     kombinacje = [
         {'delta': d, 'max_p': mp, 'win_start': ws, 'win_end': we, 'g_sec': 2.0}
         for d in d_list for mp in [x/100.0 for x in range(45, 66, 2)]
@@ -336,14 +418,20 @@ def testuj_mid_game_arb(df_rynki, symbol, interwal):
         if ws > we + 10
     ]
     
+    ticks_count = len(df_rynki)
+    print(f"   📊 Wolumen Danych: {len(kombinacje)} kombinacji siatki | {ticks_count} ticków z arkusza L2")
+    
     fast_markets = prepare_fast_markets(df_rynki)
-    najlepsze = worker_mid_arb(kombinacje, fast_markets)
+    num_cores = os.cpu_count() or 4
+    
+    najlepsze = execute_with_progress(worker_mid_arb, kombinacje, fast_markets, num_cores)
     if not najlepsze: return None
+    
     najlepsze.sort(key=lambda x: x['pnl'], reverse=True)
     w = najlepsze[0]
-    p = w['p']
-    print(f" 👑 TOP PnL: {w['pnl']:>+7.2f}$ ({w['pnl_proc']:>+6.2f}%) | WR: {w['wr']:>5.1f}% | T: {w['t']:>3}")
-    print(f" ⚙️ Parametry: delta={p['delta']}, max_p={p['max_p']}, okno={p['win_start']}s->{p['win_end']}s")
+    w['p']['id'] = strat_id
+    
+    display_results_and_compare(w, symbol, interwal, "mid_arb")
     return w
 
 def worker_otm(param_chunk, fast_markets):
@@ -359,28 +447,28 @@ def worker_otm(param_chunk, fast_markets):
                     if delta_abs < p['max_delta_abs']:
                         if 0 < r['b_up'][j] <= p['max_p']: wejscie = ('UP', r['b_up'][j])
                         elif 0 < r['b_dn'][j] <= p['max_p']: wejscie = ('DOWN', r['b_dn'][j])
-                        
-                    if wejscie:
-                        pnl_t = symuluj_wyjscie_proste(r, j, wejscie[0], wejscie[1], stawka, p['g_sec'])
-                        calkowity_pnl += pnl_t
-                        transakcje += 1
-                        if pnl_t > 0: wygrane += 1
-                        break
+                        if wejscie:
+                            pnl_t = symuluj_wyjscie_proste(r, j, wejscie[0], wejscie[1], stawka, p['g_sec'])
+                            calkowity_pnl += pnl_t
+                            transakcje += 1
+                            if pnl_t > 0: wygrane += 1
+                            break
         if transakcje > 0:
             pnl_proc = (calkowity_pnl / (transakcje * stawka)) * 100
             wyniki.append({'p': p, 'pnl': calkowity_pnl, 'pnl_proc': pnl_proc, 'wr': (wygrane/transakcje)*100, 't': transakcje})
     return wyniki
 
 def testuj_otm_bargain(df_rynki, symbol, interwal):
-    print(f"\n" + "="*80)
-    print(f" 🎟️ OTM BARGAIN | {symbol} {interwal} | Gęsta Siatka")
+    strat_id = f"{symbol.lower()}_{interwal}_otm_{int(time.time())}"
+    print(f"\n" + "=" * 80)
+    print(f" 🎟️ OTM BARGAIN | {symbol} {interwal}")
     
     if symbol == "BTC": max_d = 40.0
     elif symbol == "ETH": max_d = 2.0
     elif symbol == "SOL": max_d = 0.1
     elif symbol == "XRP": max_d = 0.001
     else: max_d = 10.0
-
+    
     kombinacje = [
         {'win_start': ws, 'win_end': we, 'max_p': p, 'g_sec': 2.0, 'max_delta_abs': max_d}
         for ws in range(50, 91, 2) for we in range(20, 56, 2)
@@ -388,30 +476,27 @@ def testuj_otm_bargain(df_rynki, symbol, interwal):
         if ws > we
     ]
     
+    ticks_count = len(df_rynki)
+    print(f"   📊 Wolumen Danych: {len(kombinacje)} kombinacji siatki | {ticks_count} ticków z arkusza L2")
+    
     fast_markets = prepare_fast_markets(df_rynki)
     num_cores = os.cpu_count() or 4
-    chunks = [kombinacje[i:i + len(kombinacje)//num_cores + 1] for i in range(0, len(kombinacje), len(kombinacje)//num_cores + 1)]
-    najlepsze = []
     
-    with ProcessPoolExecutor(max_workers=num_cores) as executor:
-        futures = [executor.submit(worker_otm, chunk, fast_markets) for chunk in chunks]
-        for f in as_completed(futures): najlepsze.extend(f.result())
-            
+    najlepsze = execute_with_progress(worker_otm, kombinacje, fast_markets, num_cores)
     if not najlepsze: return None
+    
     najlepsze.sort(key=lambda x: x['pnl'], reverse=True)
     w = najlepsze[0]
-    p = w['p']
-    print(f" 👑 TOP PnL: {w['pnl']:>+7.2f}$ ({w['pnl_proc']:>+6.2f}%) | WR: {w['wr']:>5.1f}% | T: {w['t']:>3}")
-    print(f" ⚙️ Parametry: max_p={p['max_p']}, okno={p['win_start']}s->{p['win_end']}s")
+    w['p']['id'] = strat_id
+    
+    display_results_and_compare(w, symbol, interwal, "otm")
     return w
 
 if __name__ == "__main__":
     import multiprocessing
     multiprocessing.freeze_support()
     
-    # Inicjalizacja nowej bazy do zapisu historii optymalizacji
     init_history_db()
-    
     wykonaj_analize_post_mortem()
     
     print("\n⏳ Wczytywanie bazy danych SQLite (v11) i formatowanie danych Numpy do symulacji...")
@@ -434,36 +519,36 @@ if __name__ == "__main__":
             
             optymalizacje[rynek] = {}
             
-            # --- LAG SNIPER ---
             best_lag = testuj_lag_sniper(d_int, symbol, interwal)
-            if best_lag: 
+            if best_lag:
                 save_optimization_result(symbol, interwal, "lag_sniper", best_lag)
                 optymalizacje[rynek]['lag_sniper'] = best_lag['p']
-            
-            # --- MOMENTUM ---
+                optymalizacje[rynek]['lag_sniper']['wr'] = round(best_lag['wr'], 1)
+                
             best_mom = testuj_1min_momentum(d_int, symbol, interwal)
-            if best_mom: 
+            if best_mom:
                 save_optimization_result(symbol, interwal, "momentum", best_mom)
                 optymalizacje[rynek]['momentum'] = best_mom['p']
-            
-            # --- MID ARB ---
+                optymalizacje[rynek]['momentum']['wr'] = round(best_mom['wr'], 1)
+                
             best_arb = testuj_mid_game_arb(d_int, symbol, interwal)
-            if best_arb: 
+            if best_arb:
                 save_optimization_result(symbol, interwal, "mid_arb", best_arb)
                 optymalizacje[rynek]['mid_arb'] = best_arb['p']
-            
-            # --- OTM BARGAIN ---
+                optymalizacje[rynek]['mid_arb']['wr'] = round(best_arb['wr'], 1)
+                
             best_otm = testuj_otm_bargain(d_int, symbol, interwal)
-            if best_otm: 
+            if best_otm:
                 save_optimization_result(symbol, interwal, "otm", best_otm)
                 optymalizacje[rynek]['otm'] = best_otm['p']
-            
+                optymalizacje[rynek]['otm']['wr'] = round(best_otm['wr'], 1)
+                
         with open('data/optimized_configs.json', 'w', encoding='utf-8') as f:
             json.dump(optymalizacje, f, indent=4)
             
-        print("\n" + "="*80)
+        print("\n" + "=" * 80)
         print(" 📋 ZESTAWIENIE DO PLIKU main.py (Gotowe do skopiowania)")
-        print("="*80)
+        print("=" * 80)
         
         tracked_configs = []
         for rynek, strats in optymalizacje.items():
@@ -492,7 +577,7 @@ if __name__ == "__main__":
                 cfg['mid_arb'] = {k: v for k, v in strats['mid_arb'].items() if k not in ['g_sec', 'max_delta_abs']}
             if 'otm' in strats:
                 cfg['otm'] = {k: v for k, v in strats['otm'].items() if k not in ['g_sec', 'max_delta_abs']}
-            
+                
             tracked_configs.append(cfg)
             
         config_str = json.dumps(tracked_configs, indent=4)

@@ -37,25 +37,487 @@ FULL_NAMES = {
 
 # 12 Rynków: 4x 15m, 4x 5m, 4x 1h (Oryginalna wysoce zyskowna konfiguracja + zablokowane OTM dla Altcoinów/1h)
 TRACKED_CONFIGS = [
-    # --- RYNKI 15 MINUTOWE (Wyłączono OTM dla Altcoinów) ---
-    {"symbol": "XRP", "pair": "XRPUSDT", "timeframe": "15m", "interval": 900, "decimals": 4, "offset": 0.0, "lag_sniper": {"id": "xrp_15m_ls_1771510001", "prog_bazowy": 0.0013, "prog_koncowka": 0.0002, "czas_koncowki": 90, "lag_tol": 0.1, "max_cena": 0.98, "wr": 85.7}, "momentum": {"id": "xrp_15m_mom_1771510002", "delta": 0.0002, "max_p": 0.77, "win_start": 64, "win_end": 30, "wr": 100.0}, "mid_arb": {"id": "xrp_15m_arb_1771510003", "delta": 0.0002, "max_p": 0.53, "win_start": 190, "win_end": 30, "wr": 83.3}},
-    {"symbol": "BTC", "pair": "BTCUSDT", "timeframe": "15m", "interval": 900, "decimals": 2, "offset": 0.0, "lag_sniper": {"id": "btc_15m_ls_1771510005", "prog_bazowy": 29, "prog_koncowka": 6, "czas_koncowki": 80, "lag_tol": 0.1, "max_cena": 0.96, "wr": 75.9}, "momentum": {"id": "btc_15m_mom_1771510006", "delta": 15, "max_p": 0.83, "win_start": 76, "win_end": 36, "wr": 76.9}, "mid_arb": {"id": "btc_15m_arb_1771510007", "delta": 7, "max_p": 0.57, "win_start": 190, "win_end": 65, "wr": 71.4}, "otm": {"id": "btc_15m_otm_1771510008", "win_start": 70, "win_end": 46, "max_p": 0.03, "wr": 50.0}},
-    {"symbol": "ETH", "pair": "ETHUSDT", "timeframe": "15m", "interval": 900, "decimals": 2, "offset": 0.0, "lag_sniper": {"id": "eth_15m_ls_1771510009", "prog_bazowy": 1.6, "prog_koncowka": 0.5, "czas_koncowki": 90, "lag_tol": 0.15, "max_cena": 0.98, "wr": 81.8}, "momentum": {"id": "eth_15m_mom_1771510010", "delta": 0.7, "max_p": 0.85, "win_start": 76, "win_end": 30, "wr": 100.0}, "mid_arb": {"id": "eth_15m_arb_1771510011", "delta": 0.5, "max_p": 0.59, "win_start": 190, "win_end": 90, "wr": 100.0}},
-    {"symbol": "SOL", "pair": "SOLUSDT", "timeframe": "15m", "interval": 900, "decimals": 3, "offset": 0.0, "lag_sniper": {"id": "sol_15m_ls_1771510013", "prog_bazowy": 0.05, "prog_koncowka": 0.02, "czas_koncowki": 50, "lag_tol": 0.05, "max_cena": 0.98, "wr": 69.2}, "momentum": {"id": "sol_15m_mom_1771510014", "delta": 0.08, "max_p": 0.85, "win_start": 68, "win_end": 46, "wr": 100.0}, "mid_arb": {"id": "sol_15m_arb_1771510015", "delta": 0.01, "max_p": 0.45, "win_start": 120, "win_end": 30, "wr": 50.0}},
-    
-    # --- RYNKI 5 MINUTOWE (Oryginalne OTM aktywne - świetne wyniki) ---
-    {"symbol": "BTC", "pair": "BTCUSDT", "timeframe": "5m", "interval": 300, "decimals": 2, "offset": 0.0, "lag_sniper": {"id": "btc_5m_ls_1771510017", "prog_bazowy": 16, "prog_koncowka": 8, "czas_koncowki": 90, "lag_tol": 0.15, "max_cena": 0.92, "wr": 68.8}, "momentum": {"id": "btc_5m_mom_1771510018", "delta": 16, "max_p": 0.65, "win_start": 70, "win_end": 50, "wr": 69.4}, "mid_arb": {"id": "btc_5m_arb_1771510019", "delta": 12, "max_p": 0.49, "win_start": 120, "win_end": 30, "wr": 52.5}, "otm": {"id": "btc_5m_otm_1771510020", "win_start": 58, "win_end": 24, "max_p": 0.06, "wr": 15.0}},
-    {"symbol": "ETH", "pair": "ETHUSDT", "timeframe": "5m", "interval": 300, "decimals": 2, "offset": 0.0, "lag_sniper": {"id": "eth_5m_ls_1771510021", "prog_bazowy": 1.0, "prog_koncowka": 0.3, "czas_koncowki": 90, "lag_tol": 0.15, "max_cena": 0.92, "wr": 65.0}, "momentum": {"id": "eth_5m_mom_1771510022", "delta": 1.0, "max_p": 0.65, "win_start": 70, "win_end": 50, "wr": 65.0}, "mid_arb": {"id": "eth_5m_arb_1771510023", "delta": 0.6, "max_p": 0.49, "win_start": 120, "win_end": 30, "wr": 50.0}, "otm": {"id": "eth_5m_otm_1771510024", "win_start": 58, "win_end": 24, "max_p": 0.06, "wr": 15.0}},
-    {"symbol": "SOL", "pair": "SOLUSDT", "timeframe": "5m", "interval": 300, "decimals": 3, "offset": 0.0, "lag_sniper": {"id": "sol_5m_ls_1771510025", "prog_bazowy": 0.04, "prog_koncowka": 0.015, "czas_koncowki": 90, "lag_tol": 0.05, "max_cena": 0.92, "wr": 62.0}, "momentum": {"id": "sol_5m_mom_1771510026", "delta": 0.05, "max_p": 0.65, "win_start": 70, "win_end": 50, "wr": 65.0}, "mid_arb": {"id": "sol_5m_arb_1771510027", "delta": 0.02, "max_p": 0.49, "win_start": 120, "win_end": 30, "wr": 50.0}, "otm": {"id": "sol_5m_otm_1771510028", "win_start": 58, "win_end": 24, "max_p": 0.06, "wr": 15.0}},
-    {"symbol": "XRP", "pair": "XRPUSDT", "timeframe": "5m", "interval": 300, "decimals": 4, "offset": 0.0, "lag_sniper": {"id": "xrp_5m_ls_1771510029", "prog_bazowy": 0.0008, "prog_koncowka": 0.0001, "czas_koncowki": 90, "lag_tol": 0.1, "max_cena": 0.92, "wr": 70.0}, "momentum": {"id": "xrp_5m_mom_1771510030", "delta": 0.0005, "max_p": 0.65, "win_start": 70, "win_end": 50, "wr": 70.0}, "mid_arb": {"id": "xrp_5m_arb_1771510031", "delta": 0.0003, "max_p": 0.49, "win_start": 120, "win_end": 30, "wr": 55.0}, "otm": {"id": "xrp_5m_otm_1771510032", "win_start": 58, "win_end": 24, "max_p": 0.06, "wr": 20.0}},
-    
-    # --- RYNKI 1-GODZINNE (Wyłączono całkowicie OTM) ---
-    {"symbol": "XRP", "pair": "XRPUSDT", "timeframe": "1h", "interval": 3600, "decimals": 4, "offset": 0.0, "lag_sniper": {"id": "xrp_1h_ls_1771510033", "prog_bazowy": 0.0013, "prog_koncowka": 0.0002, "czas_koncowki": 90, "lag_tol": 0.1, "max_cena": 0.98, "wr": 85.7}, "momentum": {"id": "xrp_1h_mom_1771510034", "delta": 0.0002, "max_p": 0.77, "win_start": 64, "win_end": 30, "wr": 100.0}, "mid_arb": {"id": "xrp_1h_arb_1771510035", "delta": 0.0002, "max_p": 0.53, "win_start": 190, "win_end": 30, "wr": 83.3}},
-    {"symbol": "BTC", "pair": "BTCUSDT", "timeframe": "1h", "interval": 3600, "decimals": 2, "offset": 0.0, "lag_sniper": {"id": "btc_1h_ls_1771510037", "prog_bazowy": 29, "prog_koncowka": 6, "czas_koncowki": 80, "lag_tol": 0.1, "max_cena": 0.96, "wr": 75.9}, "momentum": {"id": "btc_1h_mom_1771510038", "delta": 15, "max_p": 0.83, "win_start": 76, "win_end": 36, "wr": 76.9}, "mid_arb": {"id": "btc_1h_arb_1771510039", "delta": 7, "max_p": 0.57, "win_start": 190, "win_end": 65, "wr": 71.4}},
-    {"symbol": "ETH", "pair": "ETHUSDT", "timeframe": "1h", "interval": 3600, "decimals": 2, "offset": 0.0, "lag_sniper": {"id": "eth_1h_ls_1771510041", "prog_bazowy": 1.6, "prog_koncowka": 0.5, "czas_koncowki": 90, "lag_tol": 0.15, "max_cena": 0.98, "wr": 81.8}, "momentum": {"id": "eth_1h_mom_1771510042", "delta": 0.7, "max_p": 0.85, "win_start": 76, "win_end": 30, "wr": 100.0}, "mid_arb": {"id": "eth_1h_arb_1771510043", "delta": 0.5, "max_p": 0.59, "win_start": 190, "win_end": 90, "wr": 100.0}},
-    {"symbol": "SOL", "pair": "SOLUSDT", "timeframe": "1h", "interval": 3600, "decimals": 3, "offset": 0.0, "lag_sniper": {"id": "sol_1h_ls_1771510045", "prog_bazowy": 0.05, "prog_koncowka": 0.02, "czas_koncowki": 50, "lag_tol": 0.05, "max_cena": 0.98, "wr": 69.2}, "momentum": {"id": "sol_1h_mom_1771510046", "delta": 0.08, "max_p": 0.85, "win_start": 68, "win_end": 46, "wr": 100.0}, "mid_arb": {"id": "sol_1h_arb_1771510047", "delta": 0.01, "max_p": 0.45, "win_start": 120, "win_end": 30, "wr": 50.0}}
+    {
+        "symbol": "XRP",
+        "pair": "XRPUSDT",
+        "timeframe": "15m",
+        "interval": 900,
+        "decimals": 4,
+        "offset": 0.0,
+        "lag_sniper": {
+            "prog_bazowy": 0.0007,
+            "prog_koncowka": 0.0006,
+            "czas_koncowki": 30,
+            "lag_tol": 0.1,
+            "max_cena": 0.92,
+            "id": "xrp_15m_ls_1771685346",
+            "wr": 68.8
+        },
+        "momentum": {
+            "delta": 0.0002,
+            "max_p": 0.84,
+            "win_start": 76,
+            "win_end": 30,
+            "id": "xrp_15m_mom_1771685374",
+            "wr": 88.0
+        },
+        "mid_arb": {
+            "delta": 0.0001,
+            "max_p": 0.45,
+            "win_start": 200,
+            "win_end": 30,
+            "id": "xrp_15m_arb_1771685402",
+            "wr": 76.5
+        },
+        "otm": {
+            "win_start": 72,
+            "win_end": 20,
+            "max_p": 0.09,
+            "id": "xrp_15m_otm_1771685406",
+            "wr": 25.0
+        }
+    },
+    {
+        "symbol": "BTC",
+        "pair": "BTCUSDT",
+        "timeframe": "15m",
+        "interval": 900,
+        "decimals": 2,
+        "offset": 0.0,
+        "lag_sniper": {
+            "prog_bazowy": 35,
+            "prog_koncowka": 5,
+            "czas_koncowki": 45,
+            "lag_tol": 0.05,
+            "max_cena": 0.98,
+            "id": "btc_15m_ls_1771685408",
+            "wr": 84.3
+        },
+        "momentum": {
+            "delta": 16,
+            "max_p": 0.67,
+            "win_start": 72,
+            "win_end": 34,
+            "id": "btc_15m_mom_1771685468",
+            "wr": 80.0
+        },
+        "mid_arb": {
+            "delta": 5,
+            "max_p": 0.45,
+            "win_start": 180,
+            "win_end": 30,
+            "id": "btc_15m_arb_1771685518",
+            "wr": 76.9
+        },
+        "otm": {
+            "win_start": 50,
+            "win_end": 32,
+            "max_p": 0.05,
+            "id": "btc_15m_otm_1771685530",
+            "wr": 46.2
+        }
+    },
+    {
+        "symbol": "ETH",
+        "pair": "ETHUSDT",
+        "timeframe": "15m",
+        "interval": 900,
+        "decimals": 2,
+        "offset": 0.0,
+        "lag_sniper": {
+            "prog_bazowy": 1.0,
+            "prog_koncowka": 0.5,
+            "czas_koncowki": 75,
+            "lag_tol": 0.15,
+            "max_cena": 0.92,
+            "id": "eth_15m_ls_1771685532",
+            "wr": 75.0
+        },
+        "momentum": {
+            "delta": 0.8,
+            "max_p": 0.83,
+            "win_start": 64,
+            "win_end": 48,
+            "id": "eth_15m_mom_1771685546",
+            "wr": 100.0
+        },
+        "mid_arb": {
+            "delta": 0.4,
+            "max_p": 0.65,
+            "win_start": 200,
+            "win_end": 50,
+            "id": "eth_15m_arb_1771685586",
+            "wr": 89.5
+        },
+        "otm": {
+            "win_start": 52,
+            "win_end": 20,
+            "max_p": 0.05,
+            "id": "eth_15m_otm_1771685593",
+            "wr": 40.0
+        }
+    },
+    {
+        "symbol": "SOL",
+        "pair": "SOLUSDT",
+        "timeframe": "15m",
+        "interval": 900,
+        "decimals": 3,
+        "offset": 0.0,
+        "lag_sniper": {
+            "prog_bazowy": 0.06,
+            "prog_koncowka": 0.02,
+            "czas_koncowki": 75,
+            "lag_tol": 0.05,
+            "max_cena": 0.96,
+            "id": "sol_15m_ls_1771685594",
+            "wr": 81.2
+        },
+        "momentum": {
+            "delta": 0.02,
+            "max_p": 0.85,
+            "win_start": 60,
+            "win_end": 38,
+            "id": "sol_15m_mom_1771685626",
+            "wr": 100.0
+        },
+        "mid_arb": {
+            "delta": 0.02,
+            "max_p": 0.65,
+            "win_start": 160,
+            "win_end": 30,
+            "id": "sol_15m_arb_1771685653",
+            "wr": 95.2
+        },
+        "otm": {
+            "win_start": 74,
+            "win_end": 20,
+            "max_p": 0.06,
+            "id": "sol_15m_otm_1771685657",
+            "wr": 44.4
+        }
+    },
+    {
+        "symbol": "BTC",
+        "pair": "BTCUSDT",
+        "timeframe": "5m",
+        "interval": 300,
+        "decimals": 2,
+        "offset": 0.0,
+        "lag_sniper": {
+            "prog_bazowy": 35,
+            "prog_koncowka": 5,
+            "czas_koncowki": 55,
+            "lag_tol": 0.1,
+            "max_cena": 0.92,
+            "id": "btc_5m_ls_1771685659",
+            "wr": 70.5
+        },
+        "momentum": {
+            "delta": 15,
+            "max_p": 0.76,
+            "win_start": 78,
+            "win_end": 40,
+            "id": "btc_5m_mom_1771685725",
+            "wr": 88.3
+        },
+        "mid_arb": {
+            "delta": 5,
+            "max_p": 0.53,
+            "win_start": 200,
+            "win_end": 35,
+            "id": "btc_5m_arb_1771685782",
+            "wr": 77.3
+        },
+        "otm": {
+            "win_start": 60,
+            "win_end": 20,
+            "max_p": 0.07,
+            "id": "btc_5m_otm_1771685799",
+            "wr": 38.6
+        }
+    },
+    {
+        "symbol": "ETH",
+        "pair": "ETHUSDT",
+        "timeframe": "5m",
+        "interval": 300,
+        "decimals": 2,
+        "offset": 0.0,
+        "lag_sniper": {
+            "prog_bazowy": 1.0,
+            "prog_koncowka": 0.5,
+            "czas_koncowki": 65,
+            "lag_tol": 0.1,
+            "max_cena": 0.92,
+            "id": "eth_5m_ls_1771685801",
+            "wr": 73.6
+        },
+        "momentum": {
+            "delta": 0.5,
+            "max_p": 0.81,
+            "win_start": 82,
+            "win_end": 32,
+            "id": "eth_5m_mom_1771685816",
+            "wr": 88.9
+        },
+        "mid_arb": {
+            "delta": 0.4,
+            "max_p": 0.51,
+            "win_start": 190,
+            "win_end": 30,
+            "id": "eth_5m_arb_1771685860",
+            "wr": 80.3
+        },
+        "otm": {
+            "win_start": 74,
+            "win_end": 22,
+            "max_p": 0.09,
+            "id": "eth_5m_otm_1771685869",
+            "wr": 32.2
+        }
+    },
+    {
+        "symbol": "SOL",
+        "pair": "SOLUSDT",
+        "timeframe": "5m",
+        "interval": 300,
+        "decimals": 3,
+        "offset": 0.0,
+        "lag_sniper": {
+            "prog_bazowy": 0.09,
+            "prog_koncowka": 0.02,
+            "czas_koncowki": 45,
+            "lag_tol": 0.1,
+            "max_cena": 0.92,
+            "id": "sol_5m_ls_1771685871",
+            "wr": 71.6
+        },
+        "momentum": {
+            "delta": 0.02,
+            "max_p": 0.76,
+            "win_start": 86,
+            "win_end": 34,
+            "id": "sol_5m_mom_1771685902",
+            "wr": 84.8
+        },
+        "mid_arb": {
+            "delta": 0.01,
+            "max_p": 0.49,
+            "win_start": 120,
+            "win_end": 30,
+            "id": "sol_5m_arb_1771685932",
+            "wr": 77.1
+        },
+        "otm": {
+            "win_start": 78,
+            "win_end": 20,
+            "max_p": 0.03,
+            "id": "sol_5m_otm_1771685937",
+            "wr": 33.3
+        }
+    },
+    {
+        "symbol": "XRP",
+        "pair": "XRPUSDT",
+        "timeframe": "5m",
+        "interval": 300,
+        "decimals": 4,
+        "offset": 0.0,
+        "lag_sniper": {
+            "prog_bazowy": 0.0007,
+            "prog_koncowka": 0.0002,
+            "czas_koncowki": 75,
+            "lag_tol": 0.15,
+            "max_cena": 0.94,
+            "id": "xrp_5m_ls_1771685939",
+            "wr": 76.5
+        },
+        "momentum": {
+            "delta": 0.0002,
+            "max_p": 0.69,
+            "win_start": 78,
+            "win_end": 32,
+            "id": "xrp_5m_mom_1771685969",
+            "wr": 90.0
+        },
+        "mid_arb": {
+            "delta": 0.0001,
+            "max_p": 0.51,
+            "win_start": 170,
+            "win_end": 30,
+            "id": "xrp_5m_arb_1771685999",
+            "wr": 76.7
+        },
+        "otm": {
+            "win_start": 54,
+            "win_end": 20,
+            "max_p": 0.09,
+            "id": "xrp_5m_otm_1771686004",
+            "wr": 52.1
+        }
+    },
+    {
+        "symbol": "XRP",
+        "pair": "XRPUSDT",
+        "timeframe": "1h",
+        "interval": 3600,
+        "decimals": 4,
+        "offset": 0.0,
+        "lag_sniper": {
+            "prog_bazowy": 0.0006,
+            "prog_koncowka": 0.0003,
+            "czas_koncowki": 50,
+            "lag_tol": 0.15,
+            "max_cena": 0.96,
+            "id": "xrp_1h_ls_1771686007",
+            "wr": 73.7
+        },
+        "momentum": {
+            "delta": 0.0004,
+            "max_p": 0.85,
+            "win_start": 70,
+            "win_end": 38,
+            "id": "xrp_1h_mom_1771686031",
+            "wr": 100.0
+        },
+        "mid_arb": {
+            "delta": 0.0002,
+            "max_p": 0.61,
+            "win_start": 200,
+            "win_end": 30,
+            "id": "xrp_1h_arb_1771686056",
+            "wr": 100.0
+        },
+        "otm": {
+            "win_start": 56,
+            "win_end": 20,
+            "max_p": 0.03,
+            "id": "xrp_1h_otm_1771686059",
+            "wr": 0.0
+        }
+    },
+    {
+        "symbol": "BTC",
+        "pair": "BTCUSDT",
+        "timeframe": "1h",
+        "interval": 3600,
+        "decimals": 2,
+        "offset": 0.0,
+        "lag_sniper": {
+            "prog_bazowy": 26,
+            "prog_koncowka": 5,
+            "czas_koncowki": 30,
+            "lag_tol": 0.05,
+            "max_cena": 0.98,
+            "id": "btc_1h_ls_1771686061",
+            "wr": 73.7
+        },
+        "momentum": {
+            "delta": 18,
+            "max_p": 0.71,
+            "win_start": 90,
+            "win_end": 30,
+            "id": "btc_1h_mom_1771686103",
+            "wr": 100.0
+        },
+        "mid_arb": {
+            "delta": 18,
+            "max_p": 0.45,
+            "win_start": 120,
+            "win_end": 30,
+            "id": "btc_1h_arb_1771686151",
+            "wr": 100.0
+        },
+        "otm": {
+            "win_start": 50,
+            "win_end": 34,
+            "max_p": 0.08,
+            "id": "btc_1h_otm_1771686162",
+            "wr": 50.0
+        }
+    },
+    {
+        "symbol": "ETH",
+        "pair": "ETHUSDT",
+        "timeframe": "1h",
+        "interval": 3600,
+        "decimals": 2,
+        "offset": 0.0,
+        "lag_sniper": {
+            "prog_bazowy": 1.6,
+            "prog_koncowka": 0.5,
+            "czas_koncowki": 30,
+            "lag_tol": 0.15,
+            "max_cena": 0.98,
+            "id": "eth_1h_ls_1771686163",
+            "wr": 85.7
+        },
+        "momentum": {
+            "delta": 0.5,
+            "max_p": 0.78,
+            "win_start": 64,
+            "win_end": 32,
+            "id": "eth_1h_mom_1771686176",
+            "wr": 100.0
+        },
+        "mid_arb": {
+            "delta": 0.3,
+            "max_p": 0.63,
+            "win_start": 190,
+            "win_end": 30,
+            "id": "eth_1h_arb_1771686214",
+            "wr": 66.7
+        },
+        "otm": {
+            "win_start": 84,
+            "win_end": 48,
+            "max_p": 0.04,
+            "id": "eth_1h_otm_1771686219",
+            "wr": 50.0
+        }
+    },
+    {
+        "symbol": "SOL",
+        "pair": "SOLUSDT",
+        "timeframe": "1h",
+        "interval": 3600,
+        "decimals": 3,
+        "offset": 0.0,
+        "lag_sniper": {
+            "prog_bazowy": 0.07,
+            "prog_koncowka": 0.02,
+            "czas_koncowki": 30,
+            "lag_tol": 0.15,
+            "max_cena": 0.92,
+            "id": "sol_1h_ls_1771686221",
+            "wr": 92.3
+        },
+        "momentum": {
+            "delta": 0.02,
+            "max_p": 0.84,
+            "win_start": 70,
+            "win_end": 30,
+            "id": "sol_1h_mom_1771686249",
+            "wr": 100.0
+        },
+        "mid_arb": {
+            "delta": 0.04,
+            "max_p": 0.61,
+            "win_start": 170,
+            "win_end": 30,
+            "id": "sol_1h_arb_1771686274",
+            "wr": 100.0
+        },
+        "otm": {
+            "win_start": 50,
+            "win_end": 20,
+            "max_p": 0.05,
+            "id": "sol_1h_otm_1771686277",
+            "wr": 25.0
+        }
+    }
 ]
-
 LOCAL_STATE = {
     'binance_live_price': {cfg['pair']: 0.0 for cfg in TRACKED_CONFIGS},
     'prev_price': {cfg['pair']: 0.0 for cfg in TRACKED_CONFIGS},
