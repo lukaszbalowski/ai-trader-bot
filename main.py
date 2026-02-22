@@ -6,13 +6,11 @@ import json
 import time
 import sys
 import os
-import re
 import argparse
 import traceback
 import uuid
 from datetime import datetime
 import pytz
-from playwright.async_api import async_playwright
 
 from dashboard import render_dashboard
 
@@ -35,6 +33,7 @@ FULL_NAMES = {
     'BTC': 'bitcoin', 'ETH': 'ethereum', 'SOL': 'solana', 'XRP': 'xrp'
 }
 
+# --- UNIKALNY IDENTYFIKATOR SESJI ---
 SESSION_ID = f"sess_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
 
 # ==========================================
@@ -530,7 +529,6 @@ LOCAL_STATE = {
     'session_id': SESSION_ID
 }
 
-# --- System puli ID transakcji ---
 AVAILABLE_TRADE_IDS = list(range(100))
 
 LOCKED_PRICES = {}
@@ -553,18 +551,10 @@ RECENT_LOGS = []
 ACTIVE_ERRORS = []
 
 WS_SUBSCRIPTION_QUEUE = asyncio.Queue()
-VERIFICATION_QUEUE = asyncio.PriorityQueue()
 
 # ==========================================
 # 0. SYSTEM LOGOWANIA BŁĘDÓW & HELPERS
 # ==========================================
-def get_verification_priority(symbol, timeframe):
-    if timeframe == '5m': return 1
-    if symbol == 'BTC' and timeframe == '15m': return 2
-    if timeframe == '15m': return 3
-    if timeframe == '1h': return 4
-    return 5
-
 def log(msg):
     timestamped = f"[{datetime.now().strftime('%H:%M:%S')}] {msg}"
     RECENT_LOGS.append(timestamped)
@@ -575,11 +565,9 @@ def log_error(context_msg, e):
     ts = datetime.now().strftime('%H:%M:%S')
     err_name = type(e).__name__
     err_msg = str(e).replace('\n', ' ')[:80]
-    
     ACTIVE_ERRORS.insert(0, f"[{ts}] {context_msg} | {err_name}: {err_msg}")
     if len(ACTIVE_ERRORS) > 3:
         ACTIVE_ERRORS.pop()
-        
     try:
         os.makedirs("data", exist_ok=True)
         with open("data/error_dumps.log", "a", encoding="utf-8") as f:
@@ -608,7 +596,6 @@ async def init_db():
             await db.execute("ALTER TABLE market_logs_v11 ADD COLUMN session_id TEXT")
         except Exception:
             pass
-            
         await db.execute('''CREATE TABLE IF NOT EXISTS trade_logs_v10 (
             trade_id TEXT PRIMARY KEY, market_id TEXT, timeframe TEXT, strategy TEXT, direction TEXT,
             invested REAL, entry_price REAL, entry_time TEXT, exit_price REAL, exit_time TEXT, pnl REAL,
@@ -663,7 +650,6 @@ async def ui_updater_worker():
             if current_equity <= INITIAL_BALANCE * (1.0 - DRAWDOWN_LIMIT):
                 log(f"🛑 CRITICAL: Drawdown Limit osiągnięty! Kapitał spadł poniżej {(1.0 - DRAWDOWN_LIMIT)*100}%")
                 asyncio.create_task(liquidate_all_and_quit())
-
             render_dashboard(
                 TRACKED_CONFIGS, LOCAL_STATE, ACTIVE_MARKETS, PAPER_TRADES, 
                 LIVE_MARKET_DATA, PORTFOLIO_BALANCE, INITIAL_BALANCE, RECENT_LOGS, ACTIVE_ERRORS, TRADE_HISTORY
@@ -692,7 +678,6 @@ def handle_stdin():
 def calculate_dynamic_size(base_stake, win_rate, market_id):
     target_stake = PORTFOLIO_BALANCE * 0.02 * (win_rate / 100.0)
     size_usd = max(base_stake, target_stake) 
-    
     market_invested = sum(t['invested'] for t in PAPER_TRADES if t['market_id'] == market_id)
     if market_invested + size_usd > INITIAL_BALANCE * MAX_MARKET_EXPOSURE:
         size_usd = (INITIAL_BALANCE * MAX_MARKET_EXPOSURE) - market_invested
@@ -718,7 +703,6 @@ def execute_trade(market_id, timeframe, strategy, direction, base_stake, price, 
     shares = size_usd / price
     unique_suffix = uuid.uuid4().hex[:8]
     trade_id = f"{market_id}_{len(PAPER_TRADES)}_{int(time.time() * 1000)}_{unique_suffix}"
-    
     trade = {
         'id': trade_id, 'short_id': short_id, 'strat_id': strat_id,
         'market_id': market_id, 'timeframe': timeframe, 'symbol': symbol,
@@ -853,52 +837,25 @@ async def polymarket_ws_listener():
             await asyncio.sleep(0.1)
 
 # ==========================================
-# 5. MARKET STATE MANAGER (HYBRYDA API + PLAYWRIGHT FALLBACK)
+# 5. MARKET STATE MANAGER (BINANCE API RESOLUTION)
 # ==========================================
-async def playwright_verification_worker():
-    """Wątek ratunkowy: Otwiera stronę i szuka ceny w HTML, tylko jeśli API zawiedzie."""
-    log("🕵️ Playwright Fallback Worker online. (Gotowy na awarię API...)")
+async def get_binance_strike_price(session, pair, base_ts):
+    """
+    Kluczowa funkcja rozwiązująca problem Polymarketu. 
+    Zamiast scrapować teksty, pyta Binance o dokładną historyczną cenę Open 
+    ze świecy startowej dla danego rynku. Szybko, lekko i w 100% stabilnie.
+    """
+    url = f"https://api.binance.com/api/v3/klines?symbol={pair}&interval=1m&startTime={int(base_ts * 1000)}&limit=1"
     try:
-        async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=True, args=['--no-sandbox', '--disable-setuid-sandbox'])
-            while True:
-                priority, req_ts, slug, m_id = await VERIFICATION_QUEUE.get()
-                try:
-                    # Sprawdzamy czy rynek w międzyczasie nie został zweryfikowany przez API
-                    if m_id in LOCKED_PRICES and LOCKED_PRICES[m_id].get('verified'):
-                        continue
-
-                    url = f"https://polymarket.com/event/{slug}"
-                    context = await browser.new_context(user_agent="Mozilla/5.0")
-                    page = await context.new_page()
-                    await page.goto(url, wait_until="domcontentloaded", timeout=20000)
-                    await asyncio.sleep(4)
-                    content = await page.content()
-                    await context.close()
-                    
-                    # Wyszukiwanie ceny (Fallback)
-                    match = re.search(r'(?:Price to beat|Target Price).*?\$(\d{1,3}(?:,\d{3})*(?:\.\d+)?)', content, re.IGNORECASE | re.DOTALL)
-                    if match:
-                        v = float(match.group(1).replace(',', ''))
-                        if m_id in LOCKED_PRICES:
-                            live_p = LOCKED_PRICES[m_id].get('price', 0.0)
-                            sanity_limit = 0.15 # 15% tolerancji dla Fallbacku
-                            
-                            if live_p > 0 and abs(v - live_p) / live_p <= sanity_limit:
-                                LOCKED_PRICES[m_id]['price'] = v
-                                LOCKED_PRICES[m_id]['verified'] = True
-                                log(f"🦾 [FALLBACK VERIFIED] Playwright odczytał: ${v} dla {slug}")
-                            else:
-                                log(f"⚠️ [FALLBACK REJECTED] Playwright odrzucił dziwną cenę: ${v}")
-                                
-                except Exception as e:
-                    log_error(f"Playwright Worker ({slug})", e)
-                finally:
-                    VERIFICATION_QUEUE.task_done()
-                    await asyncio.sleep(3)
-    except Exception as e:
-        log_error("Fatal Playwright Crash", e)
-
+        async with session.get(url, timeout=5) as resp:
+            if resp.status == 200:
+                data = await resp.json()
+                if data and len(data) > 0:
+                    # data[0][1] to zawsze Open Price z danej minuty na Binance
+                    return float(data[0][1]) 
+    except Exception:
+        pass
+    return None
 
 async def fetch_and_track_markets():
     tz_et = pytz.timezone('America/New_York')
@@ -944,28 +901,11 @@ async def fetch_and_track_markets():
                                             outcomes = eval(m.get('outcomes', '[]'))
                                             clob_ids = eval(m.get('clobTokenIds', '[]'))
                                             
-                                            # --- PODEJŚCIE 1: SZYBKIE API (SMART REGEX) ---
-                                            api_target = None
-                                            text_to_search = f"{m.get('question', '')} {m.get('description', '')} {m.get('title', '')}"
-                                            matches = re.findall(r'\$\s*(\d+(?:[,\s]\d+)*(?:\.\d+)?)', text_to_search)
-                                            sanity_limit = SANITY_THRESHOLDS.get(config['symbol'], 0.10)
-                                            
-                                            for match_str in matches:
-                                                try:
-                                                    clean_val = match_str.replace(',', '').replace(' ', '')
-                                                    candidate_val = float(clean_val)
-                                                    if live_p > 0 and abs(candidate_val - live_p) / live_p <= sanity_limit:
-                                                        api_target = candidate_val
-                                                        break 
-                                                except ValueError:
-                                                    continue
-                                            
                                             MARKET_CACHE[candidate] = {
                                                 'id': str(m.get('id')), 
                                                 'up_id': clob_ids[outcomes.index("Up")], 
                                                 'dn_id': clob_ids[outcomes.index("Down")], 
-                                                'config': config,
-                                                'api_target': api_target
+                                                'config': config
                                             }
                                             await WS_SUBSCRIPTION_QUEUE.put([clob_ids[0], clob_ids[1]])
                                             active_slug = candidate
@@ -977,7 +917,6 @@ async def fetch_and_track_markets():
                     slug = active_slug
                     
                     m_id = MARKET_CACHE[slug]['id']
-                    api_target = MARKET_CACHE[slug]['api_target']
                     timeframe_key = f"{config['symbol']}_{config['timeframe']}"
                     
                     if m_id not in LOCKED_PRICES:
@@ -1002,20 +941,18 @@ async def fetch_and_track_markets():
                         
                     if sec_left >= interval_s - 2: continue
                     
-                    # WERYFIKACJA HYBRYDOWA
+                    # === NOWA WERYFIKACJA OPIARTA O BINANCE ===
                     if not m_data['verified']:
-                        # 1. Próba z API
-                        if api_target is not None:
-                            m_data['price'] = api_target
+                        strike_p = await get_binance_strike_price(session, pair, base_ts)
+                        if strike_p is not None:
+                            m_data['price'] = strike_p
                             m_data['verified'] = True
-                            log(f"⚡ [API VERIFIED] Wyłowiono bazę: ${api_target} dla {slug}")
+                            log(f"⚡ [BINANCE API VERIFIED] Precyzyjna baza ze świecy startowej: ${strike_p:.2f} dla {slug}")
                         else:
-                            # 2. Jeśli API milczy przez 30 sekund trwania opcji, wyślij czołg (Playwright Fallback)
-                            if sec_since_start >= 30 and (time.time() - m_data['last_retry']) > 120:
+                            # Próba co 10 sekund, jeśli świeca z Binance jeszcze się nie wygenerowała
+                            if (time.time() - m_data['last_retry']) > 10:
                                 m_data['last_retry'] = time.time()
-                                log(f"⚠️ [API PUSTE] Zlecam weryfikację Fallback (Playwright) dla {slug}...")
-                                priority_level = get_verification_priority(config['symbol'], config['timeframe'])
-                                VERIFICATION_QUEUE.put_nowait((priority_level, time.time(), slug, m_id))
+                                log(f"⏳ [AWAITING BINANCE] Oczekiwanie na świecę historyczną dla {slug}...")
                             
                     LOCAL_STATE[f'timing_{m_id}'] = {
                         'sec_left': sec_left, 'sec_since_start': sec_since_start,
@@ -1153,7 +1090,7 @@ async def main():
     PORTFOLIO_BALANCE = args.portfolio
     LAST_FLUSH_TS = (int(time.time()) // 300) * 300
     
-    log(f"🚀 INICJALIZACJA SYSTEMU HYBRYDOWEGO (API + FALLBACK). ID Sesji: {SESSION_ID}")
+    log(f"🚀 INICJALIZACJA SYSTEMU API-ONLY. ID Sesji: {SESSION_ID}")
     
     await init_db()
     
@@ -1167,7 +1104,6 @@ async def main():
         binance_ws_listener(),
         polymarket_ws_listener(),
         fetch_and_track_markets(),
-        playwright_verification_worker(), # Wątek wrócił, ale w trybie Fallback!
         ui_updater_worker(),
         async_smart_flush_worker()
     )
