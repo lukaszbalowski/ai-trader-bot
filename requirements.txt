@@ -5,4 +5,4 @@ pytz
 pandas
 numpy
 web3
-playwright
+py-clob-client

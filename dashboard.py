@@ -3,7 +3,6 @@ import time
 import datetime
 
 def render_dashboard(configs, state, active_markets, trades, live_data, balance, init_balance, logs, errors, trade_history):
-    # Auto-naprawa licznika sesji
     if 'session_start' not in state:
         state['session_start'] = time.time()
         
@@ -17,8 +16,8 @@ def render_dashboard(configs, state, active_markets, trades, live_data, balance,
     MAG = "\033[35m"
 
     out = [CLR]
-    out.append(f"{BLD}{MAG}=== WATCHER v10.27 (INTEGRATED POSITIONS & ID POOL) ==={RST}")
-    out.append(f"{BLD}{CYN}--- RYNKI (LIVE) ---{RST}")
+    out.append(f"{BLD}{MAG}=== WATCHER v10.29 (MULTI-TIMEFRAME | PRE-WARMING) ==={RST}")
+    out.append(f"{BLD}{CYN}--- MARKETS (LIVE) ---{RST}")
 
     for cfg in configs:
         tk = f"{cfg['symbol']}_{cfg['timeframe']}"
@@ -28,15 +27,13 @@ def render_dashboard(configs, state, active_markets, trades, live_data, balance,
         realized_pnl = sum(t['pnl'] for t in trade_history if f"{t['symbol']}_{t['timeframe']}" == tk)
         realized_pct = (realized_pnl / init_balance) * 100 if init_balance else 0.0
         session_color = GRN if realized_pnl > 0 else (RED if realized_pnl < 0 else RST)
-        session_str = f" | Sesja: {session_color}${realized_pnl:+.2f} ({realized_pct:+.2f}%){RST}" if realized_pnl != 0 else ""
+        session_str = f" | Session: {session_color}${realized_pnl:+.2f} ({realized_pct:+.2f}%){RST}" if realized_pnl != 0 else ""
 
-        # NOWOŚĆ: Niezawodne wyciąganie identyfikatorów strategii z fallbackiem "Brak"
         strat_ids = []
         strat_map = {'lag_sniper': 'LS', 'momentum': 'MOM', 'mid_arb': 'ARB', 'otm': 'OTM'}
         for s_key, s_abbr in strat_map.items():
             if s_key in cfg:
-                # Jeśli klucz 'id' nie istnieje, wyświetl 'Brak'
-                s_id = cfg[s_key].get('id', 'Brak')
+                s_id = cfg[s_key].get('id', 'None')
                 strat_ids.append(f"{s_abbr}: {s_id}")
         ids_str = f"\n   ├─ IDs: {', '.join(strat_ids)}" if strat_ids else ""
 
@@ -45,9 +42,17 @@ def render_dashboard(configs, state, active_markets, trades, live_data, balance,
             target = active_markets[tk]['target']
             timing = state.get(f'timing_{m_id}', {})
             sec_left = timing.get('sec_left', 0)
+            sec_since_start = timing.get('sec_since_start', 0)
+            is_pre_warming = timing.get('is_pre_warming', False)
             
-            is_ver = timing.get('m_data', {}).get('verified', False)
-            ver_txt = f"{GRN}[VERIFIED]{RST}" if is_ver else f"{YLW}[UNVERIFIED]{RST}"
+            is_base_fetched = timing.get('m_data', {}).get('base_fetched', False)
+            
+            if is_pre_warming:
+                ver_txt = f"{MAG}[🔥 PRE-WARM]{RST} {GRN}[BASE OK]{RST}" if is_base_fetched else f"{MAG}[🔥 PRE-WARM]{RST} {YLW}[FETCHING...]{RST}"
+                meta_str = f"Starts in: {abs(sec_since_start):04.1f}s"
+            else:
+                ver_txt = f"{GRN}[BASE OK]{RST}" if is_base_fetched else f"{YLW}[NO BASE]{RST}"
+                meta_str = f"End: {sec_left:05.1f}s"
             
             m_data = live_data.get(m_id, {})
             b_up = m_data.get('UP_BID', 0.0)
@@ -70,13 +75,12 @@ def render_dashboard(configs, state, active_markets, trades, live_data, balance,
                 float_color = GRN if market_pnl > 0 else (RED if market_pnl < 0 else YLW)
                 floating_str = f" | Float PnL: {float_color}${market_pnl:+.2f} ({float_pct:+.2f}%){RST}"
 
-            # Przeniosłem IDs do nowego wiersza, żeby nie zepsuć układu przy bardzo długich stringach
-            out.append(f"{BLD}{cfg['symbol']} {cfg['timeframe']}{RST} {ver_txt} | Meta: {sec_left:05.1f}s | Baza: ${target:,.2f}{session_str}{ids_str}")
+            out.append(f"{BLD}{cfg['symbol']} {cfg['timeframe']}{RST} {ver_txt} | {meta_str} | Strike: ${target:,.2f}{session_str}{ids_str}")
             out.append(f"   ├─ Live: ${adj_p:,.2f} | D: {diff_trend} ${abs(diff):.2f}{floating_str}")
 
             if market_trades:
                 out.append(f"   ├─ L2 -> UP: {b_up*100:04.1f}c | DOWN: {b_dn*100:04.1f}c")
-                out.append(f"   └─ {BLD}{MAG}[AKTYWNE POZYCJE]{RST}")
+                out.append(f"   └─ {BLD}{MAG}[ACTIVE POSITIONS]{RST}")
                 for idx, t in enumerate(market_trades):
                     prefix = "    └─" if idx == len(market_trades) - 1 else "    ├─"
                     c_bid = m_data.get(f"{t['direction']}_BID", 0.0)
@@ -84,15 +88,12 @@ def render_dashboard(configs, state, active_markets, trades, live_data, balance,
                     pnl = c_val - t['invested']
                     pnl_pct = (pnl / t['invested']) * 100 if t['invested'] else 0.0
                     t_color = GRN if pnl > 0 else (RED if pnl < 0 else YLW)
-                    out.append(f"   {prefix} [ID: {t['short_id']:02d}] {t['strategy']} ({t['direction']}) | Wkład: ${t['invested']:.2f} | PnL: {t_color}${pnl:+.2f} ({pnl_pct:+.2f}%){RST}")
+                    out.append(f"   {prefix} [ID: {t['short_id']:02d}] {t['strategy']} ({t['direction']}) | Invested: ${t['invested']:.2f} | PnL: {t_color}${pnl:+.2f} ({pnl_pct:+.2f}%){RST}")
             else:
                 out.append(f"   └─ L2 -> UP: {b_up*100:04.1f}c | DOWN: {b_dn*100:04.1f}c")
         else:
-            out.append(f"{BLD}{cfg['symbol']} {cfg['timeframe']}{RST} | Oczekiwanie... (Live: ${live_p:,.2f}){session_str}{ids_str}")
+            out.append(f"{BLD}{cfg['symbol']} {cfg['timeframe']}{RST} | Waiting for new market... (Live: ${live_p:,.2f}){session_str}{ids_str}")
 
-    # ==========================================
-    # SEKCJA PODSUMOWANIA PORTFELA
-    # ==========================================
     total_floating_value = 0.0
     total_invested_value = 0.0
     
@@ -111,23 +112,23 @@ def render_dashboard(configs, state, active_markets, trades, live_data, balance,
     start_ts = state.get('session_start', time.time())
     duration_sec = int(time.time() - start_ts)
     duration_str = str(datetime.timedelta(seconds=duration_sec))
-    session_id_str = state.get('session_id', 'Brak ID')
+    session_id_str = state.get('session_id', 'No ID')
 
-    out.append(f"\n{BLD}{CYN}--- STATUS PORTFELA ---{RST}")
-    out.append(f"Start: ${init_balance:.2f} | Czas sesji: {duration_str} | Sesja ID: {session_id_str}")
-    out.append(f"Wkład w pozycje: ${total_invested_value:.2f} | Rynkowa wycena opcji (Float): ${total_floating_value:.2f}")
-    out.append(f"Całkowita wycena portfela: {BLD}${current_equity:.2f}{RST} (Zapas gotówki: ${balance:.2f})")
-    out.append(f"Globalny PnL (Zrealizowany + Float): {pnl_color}${net_pnl:+.2f} ({net_pnl_pct:+.2f}%){RST}")
+    out.append(f"\n{BLD}{CYN}--- PORTFOLIO STATUS ---{RST}")
+    out.append(f"Start: ${init_balance:.2f} | Session time: {duration_str} | Session ID: {session_id_str}")
+    out.append(f"Invested in positions: ${total_invested_value:.2f} | Floating options value: ${total_floating_value:.2f}")
+    out.append(f"Total portfolio value: {BLD}${current_equity:.2f}{RST} (Cash balance: ${balance:.2f})")
+    out.append(f"Global PnL (Realized + Float): {pnl_color}${net_pnl:+.2f} ({net_pnl_pct:+.2f}%){RST}")
 
     if errors:
-        out.append(f"\n{BLD}{RED}--- ALARMY / BŁĘDY ---{RST}")
+        out.append(f"\n{BLD}{RED}--- ALARMS / ERRORS ---{RST}")
         for err in errors:
             out.append(f"{RED}{err}{RST}")
 
-    out.append(f"\n{BLD}{YLW}--- LOGI SYSTEMOWE ---{RST}")
+    out.append(f"\n{BLD}{YLW}--- SYSTEM LOGS ---{RST}")
     for l in logs[-5:]:
         out.append(l)
 
-    out.append(f"\n{BLD}[Klawiszologia] {RST}'q' + Enter -> Awaryjna wyprzedaż i zamknięcie")
+    out.append(f"\n{BLD}[Controls] {RST}'q' + Enter -> Emergency sell & exit | 'd' + Enter -> PANIC DUMP (Save to file)")
     sys.stdout.write("\n".join(out) + "\n")
     sys.stdout.flush()
