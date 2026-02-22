@@ -538,8 +538,18 @@ def generate_tracked_configs_output(optimizations):
             "offset": 0.0,
         }
         
+        # Backward-compatible injection: Read old Polish keys if new ones are missing
         if 'lag_sniper' in strats:
-            cfg['lag_sniper'] = {k: v for k, v in strats['lag_sniper'].items() if k not in ['g_sec', 'max_delta_abs']}
+            ls = strats['lag_sniper']
+            cfg['lag_sniper'] = {
+                "base_threshold": ls.get('base_threshold', ls.get('prog_bazowy', 0)),
+                "end_threshold": ls.get('end_threshold', ls.get('prog_koncowka', 0)),
+                "end_time": ls.get('end_time', ls.get('czas_koncowki', 0)),
+                "lag_tolerance": ls.get('lag_tolerance', ls.get('lag_tol', 0)),
+                "max_price": ls.get('max_price', ls.get('max_cena', 0)),
+                "id": ls.get('id', ''),
+                "wr": ls.get('wr', 0.0)
+            }
         if 'momentum' in strats:
             cfg['momentum'] = {k: v for k, v in strats['momentum'].items() if k not in ['g_sec', 'max_delta_abs']}
         if 'mid_arb' in strats:
