@@ -48,28 +48,34 @@ TRACKED_CONFIGS = [
         "decimals": 4,
         "offset": 0.0,
         "lag_sniper": {
-            "prog_bazowy": 0.0007,
+            "prog_bazowy": 0.0011,
             "prog_koncowka": 0.0002,
-            "czas_koncowki": 30,
-            "lag_tol": 0.15,
-            "max_cena": 0.92
+            "czas_koncowki": 65,
+            "lag_tol": 0.05,
+            "max_cena": 0.98,
+            "wr": 100.0
         },
         "momentum": {
             "delta": 0.0002,
-            "max_p": 0.84,
-            "win_start": 76,
-            "win_end": 34
+            "max_p": 0.83,
+            "win_start": 60,
+            "win_end": 34,
+            "id": "xrp_15m_mom_1771765031",
+            "wr": 93.1
         },
         "mid_arb": {
-            "delta": 0.0001,
-            "max_p": 0.45,
-            "win_start": 200,
-            "win_end": 30
+            "delta": 0.0003,
+            "max_p": 0.55,
+            "win_start": 170,
+            "win_end": 30,
+            "id": "xrp_15m_arb_1771765068",
+            "wr": 78.3
         },
         "otm": {
-            "win_start": 54,
-            "win_end": 50,
-            "max_p": 0.06
+            "win_start": 62,
+            "win_end": 20,
+            "max_p": 0.03,
+            "wr": 100.0
         }
     },
     {
@@ -82,26 +88,31 @@ TRACKED_CONFIGS = [
         "lag_sniper": {
             "prog_bazowy": 35,
             "prog_koncowka": 5,
-            "czas_koncowki": 35,
-            "lag_tol": 0.1,
-            "max_cena": 0.92
+            "czas_koncowki": 45,
+            "lag_tol": 0.05,
+            "max_cena": 0.98,
+            "wr": 84.3
         },
         "momentum": {
-            "delta": 15,
+            "delta": 16,
             "max_p": 0.67,
-            "win_start": 82,
-            "win_end": 34
+            "win_start": 72,
+            "win_end": 40,
+            "wr": 80.0
         },
         "mid_arb": {
-            "delta": 11,
-            "max_p": 0.53,
-            "win_start": 140,
-            "win_end": 30
+            "delta": 5,
+            "max_p": 0.45,
+            "win_start": 180,
+            "win_end": 30,
+            "wr": 76.9
         },
         "otm": {
-            "win_start": 64,
-            "win_end": 30,
-            "max_p": 0.02
+            "win_start": 58,
+            "win_end": 26,
+            "max_p": 0.02,
+            "id": "btc_15m_otm_1771765852",
+            "wr": 52.6
         }
     },
     {
@@ -112,28 +123,35 @@ TRACKED_CONFIGS = [
         "decimals": 2,
         "offset": 0.0,
         "lag_sniper": {
-            "prog_bazowy": 1.0,
+            "prog_bazowy": 1.2,
             "prog_koncowka": 0.5,
-            "czas_koncowki": 30,
-            "lag_tol": 0.15,
-            "max_cena": 0.92
+            "czas_koncowki": 75,
+            "lag_tol": 0.05,
+            "max_cena": 0.92,
+            "id": "eth_15m_ls_1771765854",
+            "wr": 63.2
         },
         "momentum": {
             "delta": 0.8,
             "max_p": 0.76,
-            "win_start": 78,
-            "win_end": 48
+            "win_start": 68,
+            "win_end": 48,
+            "id": "eth_15m_mom_1771765874",
+            "wr": 100.0
         },
         "mid_arb": {
-            "delta": 0.3,
-            "max_p": 0.65,
+            "delta": 0.4,
+            "max_p": 0.59,
             "win_start": 200,
-            "win_end": 40
+            "win_end": 50,
+            "id": "eth_15m_arb_1771765930",
+            "wr": 81.0
         },
         "otm": {
-            "win_start": 54,
-            "win_end": 20,
-            "max_p": 0.04
+            "win_start": 62,
+            "win_end": 40,
+            "max_p": 0.04,
+            "wr": 100.0
         }
     },
     {
@@ -144,28 +162,35 @@ TRACKED_CONFIGS = [
         "decimals": 3,
         "offset": 0.0,
         "lag_sniper": {
-            "prog_bazowy": 0.1,
+            "prog_bazowy": 0.08,
             "prog_koncowka": 0.02,
-            "czas_koncowki": 30,
-            "lag_tol": 0.05,
-            "max_cena": 0.92
+            "czas_koncowki": 75,
+            "lag_tol": 0.15,
+            "max_cena": 0.98,
+            "id": "sol_15m_ls_1771765942",
+            "wr": 84.4
         },
         "momentum": {
             "delta": 0.02,
-            "max_p": 0.81,
-            "win_start": 90,
-            "win_end": 50
+            "max_p": 0.85,
+            "win_start": 60,
+            "win_end": 38,
+            "id": "sol_15m_mom_1771765986",
+            "wr": 100.0
         },
         "mid_arb": {
             "delta": 0.02,
             "max_p": 0.45,
             "win_start": 180,
-            "win_end": 30
+            "win_end": 30,
+            "wr": 83.3
         },
         "otm": {
-            "win_start": 76,
+            "win_start": 78,
             "win_end": 20,
-            "max_p": 0.08
+            "max_p": 0.06,
+            "id": "sol_15m_otm_1771766034",
+            "wr": 50.0
         }
     },
     {
@@ -176,28 +201,34 @@ TRACKED_CONFIGS = [
         "decimals": 2,
         "offset": 0.0,
         "lag_sniper": {
-            "prog_bazowy": 22,
-            "prog_koncowka": 9,
-            "czas_koncowki": 80,
-            "lag_tol": 0.05,
-            "max_cena": 0.98
+            "prog_bazowy": 35,
+            "prog_koncowka": 5,
+            "czas_koncowki": 90,
+            "lag_tol": 0.1,
+            "max_cena": 0.92,
+            "id": "btc_5m_ls_1771766037",
+            "wr": 69.2
         },
         "momentum": {
-            "delta": 25,
-            "max_p": 0.85,
-            "win_start": 90,
-            "win_end": 36
+            "delta": 15,
+            "max_p": 0.76,
+            "win_start": 78,
+            "win_end": 40,
+            "wr": 88.3
         },
         "mid_arb": {
-            "delta": 19,
-            "max_p": 0.53,
-            "win_start": 180,
-            "win_end": 30
+            "delta": 5,
+            "max_p": 0.45,
+            "win_start": 120,
+            "win_end": 35,
+            "id": "btc_5m_arb_1771766209",
+            "wr": 74.7
         },
         "otm": {
             "win_start": 54,
             "win_end": 24,
-            "max_p": 0.03
+            "max_p": 0.03,
+            "wr": 33.3
         }
     },
     {
@@ -208,28 +239,32 @@ TRACKED_CONFIGS = [
         "decimals": 2,
         "offset": 0.0,
         "lag_sniper": {
-            "prog_bazowy": 2.0,
+            "prog_bazowy": 1.2,
             "prog_koncowka": 0.5,
-            "czas_koncowki": 85,
-            "lag_tol": 0.1,
-            "max_cena": 0.98
+            "czas_koncowki": 30,
+            "lag_tol": 0.05,
+            "max_cena": 0.92,
+            "wr": 75.0
         },
         "momentum": {
-            "delta": 1.0,
-            "max_p": 0.78,
-            "win_start": 88,
-            "win_end": 30
+            "delta": 0.6,
+            "max_p": 0.79,
+            "win_start": 90,
+            "win_end": 32,
+            "wr": 100.0
         },
         "mid_arb": {
             "delta": 0.4,
             "max_p": 0.51,
             "win_start": 190,
-            "win_end": 40
+            "win_end": 40,
+            "wr": 84.2
         },
         "otm": {
-            "win_start": 74,
-            "win_end": 26,
-            "max_p": 0.09
+            "win_start": 62,
+            "win_end": 38,
+            "max_p": 0.02,
+            "wr": 40.0
         }
     },
     {
@@ -240,28 +275,32 @@ TRACKED_CONFIGS = [
         "decimals": 3,
         "offset": 0.0,
         "lag_sniper": {
-            "prog_bazowy": 0.09,
-            "prog_koncowka": 0.03,
-            "czas_koncowki": 50,
-            "lag_tol": 0.05,
-            "max_cena": 0.92
+            "prog_bazowy": 0.05,
+            "prog_koncowka": 0.04,
+            "czas_koncowki": 60,
+            "lag_tol": 0.1,
+            "max_cena": 0.98,
+            "wr": 88.9
         },
         "momentum": {
-            "delta": 0.05,
-            "max_p": 0.83,
-            "win_start": 90,
-            "win_end": 32
+            "delta": 0.02,
+            "max_p": 0.76,
+            "win_start": 86,
+            "win_end": 32,
+            "wr": 84.8
         },
         "mid_arb": {
             "delta": 0.01,
-            "max_p": 0.45,
+            "max_p": 0.49,
             "win_start": 120,
-            "win_end": 50
+            "win_end": 30,
+            "wr": 77.1
         },
         "otm": {
             "win_start": 58,
             "win_end": 22,
-            "max_p": 0.03
+            "max_p": 0.03,
+            "wr": 45.5
         }
     },
     {
@@ -272,28 +311,33 @@ TRACKED_CONFIGS = [
         "decimals": 4,
         "offset": 0.0,
         "lag_sniper": {
-            "prog_bazowy": 0.0019,
-            "prog_koncowka": 0.0003,
-            "czas_koncowki": 35,
-            "lag_tol": 0.05,
-            "max_cena": 0.98
+            "prog_bazowy": 0.0015,
+            "prog_koncowka": 0.0002,
+            "czas_koncowki": 70,
+            "lag_tol": 0.15,
+            "max_cena": 0.92,
+            "id": "xrp_5m_ls_1771766432",
+            "wr": 76.7
         },
         "momentum": {
-            "delta": 0.0003,
-            "max_p": 0.84,
-            "win_start": 70,
-            "win_end": 32
+            "delta": 0.0005,
+            "max_p": 0.81,
+            "win_start": 68,
+            "win_end": 36,
+            "wr": 91.7
         },
         "mid_arb": {
-            "delta": 0.0001,
-            "max_p": 0.51,
+            "delta": 0.0003,
+            "max_p": 0.47,
             "win_start": 170,
-            "win_end": 40
+            "win_end": 30,
+            "wr": 84.6
         },
         "otm": {
-            "win_start": 62,
+            "win_start": 82,
             "win_end": 20,
-            "max_p": 0.09
+            "max_p": 0.07,
+            "wr": 58.3
         }
     },
     {
@@ -304,23 +348,32 @@ TRACKED_CONFIGS = [
         "decimals": 4,
         "offset": 0.0,
         "lag_sniper": {
-            "prog_bazowy": 0.0014,
+            "prog_bazowy": 0.001,
             "prog_koncowka": 0.0002,
             "czas_koncowki": 30,
             "lag_tol": 0.05,
-            "max_cena": 0.92
+            "max_cena": 0.92,
+            "wr": 100.0
         },
         "momentum": {
-            "delta": 0.0013,
-            "max_p": 0.7,
-            "win_start": 60,
-            "win_end": 54
+            "delta": 0.0004,
+            "max_p": 0.76,
+            "win_start": 70,
+            "win_end": 38,
+            "wr": 100.0
         },
         "mid_arb": {
-            "delta": 0.0001,
+            "delta": 0.0002,
             "max_p": 0.61,
-            "win_start": 190,
-            "win_end": 30
+            "win_start": 200,
+            "win_end": 30,
+            "wr": 100.0
+        },
+        "otm": {
+            "win_start": 58,
+            "win_end": 20,
+            "max_p": 0.02,
+            "wr": 100.0
         }
     },
     {
@@ -335,19 +388,28 @@ TRACKED_CONFIGS = [
             "prog_koncowka": 5,
             "czas_koncowki": 30,
             "lag_tol": 0.05,
-            "max_cena": 0.92
+            "max_cena": 0.92,
+            "wr": 75.0
         },
         "momentum": {
-            "delta": 29,
-            "max_p": 0.75,
-            "win_start": 68,
-            "win_end": 50
+            "delta": 18,
+            "max_p": 0.81,
+            "win_start": 90,
+            "win_end": 36,
+            "wr": 100.0
         },
         "mid_arb": {
-            "delta": 5,
-            "max_p": 0.47,
+            "delta": 18,
+            "max_p": 0.45,
             "win_start": 120,
-            "win_end": 30
+            "win_end": 30,
+            "wr": 100.0
+        },
+        "otm": {
+            "win_start": 50,
+            "win_end": 20,
+            "max_p": 0.02,
+            "wr": 50.0
         }
     },
     {
@@ -358,28 +420,32 @@ TRACKED_CONFIGS = [
         "decimals": 2,
         "offset": 0.0,
         "lag_sniper": {
-            "prog_bazowy": 1.0,
+            "prog_bazowy": 1.6,
             "prog_koncowka": 0.5,
             "czas_koncowki": 30,
-            "lag_tol": 0.1,
-            "max_cena": 0.92
+            "lag_tol": 0.15,
+            "max_cena": 0.98,
+            "wr": 85.7
         },
         "momentum": {
             "delta": 0.5,
             "max_p": 0.72,
             "win_start": 68,
-            "win_end": 38
+            "win_end": 38,
+            "wr": 100.0
         },
         "mid_arb": {
             "delta": 0.6,
             "max_p": 0.45,
             "win_start": 120,
-            "win_end": 30
+            "win_end": 30,
+            "wr": 100.0
         },
         "otm": {
-            "win_start": 54,
-            "win_end": 22,
-            "max_p": 0.02
+            "win_start": 88,
+            "win_end": 48,
+            "max_p": 0.04,
+            "wr": 50.0
         }
     },
     {
@@ -392,26 +458,30 @@ TRACKED_CONFIGS = [
         "lag_sniper": {
             "prog_bazowy": 0.07,
             "prog_koncowka": 0.02,
-            "czas_koncowki": 35,
+            "czas_koncowki": 30,
             "lag_tol": 0.15,
-            "max_cena": 0.92
+            "max_cena": 0.92,
+            "wr": 92.3
         },
         "momentum": {
             "delta": 0.02,
             "max_p": 0.84,
             "win_start": 70,
-            "win_end": 46
+            "win_end": 46,
+            "wr": 100.0
         },
         "mid_arb": {
             "delta": 0.04,
             "max_p": 0.61,
-            "win_start": 120,
-            "win_end": 30
+            "win_start": 170,
+            "win_end": 30,
+            "wr": 100.0
         },
         "otm": {
             "win_start": 54,
             "win_end": 20,
-            "max_p": 0.05
+            "max_p": 0.05,
+            "wr": 50.0
         }
     }
 ]
