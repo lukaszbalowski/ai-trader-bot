@@ -3,6 +3,10 @@ import time
 import datetime
 
 def render_dashboard(configs, state, active_markets, trades, live_data, balance, init_balance, logs, errors, trade_history):
+    # Auto-naprawa licznika sesji (jeśli brak w main.py)
+    if 'session_start' not in state:
+        state['session_start'] = time.time()
+        
     CLR = "\033[2J\033[H"
     RST = "\033[0m"
     BLD = "\033[1m"
@@ -21,10 +25,19 @@ def render_dashboard(configs, state, active_markets, trades, live_data, balance,
         live_p = state['binance_live_price'].get(cfg['pair'], 0.0)
         adj_p = live_p + cfg['offset']
         
+        # Wyliczanie zrealizowanego PnL
         realized_pnl = sum(t['pnl'] for t in trade_history if f"{t['symbol']}_{t['timeframe']}" == tk)
         realized_pct = (realized_pnl / init_balance) * 100 if init_balance else 0.0
         session_color = GRN if realized_pnl > 0 else (RED if realized_pnl < 0 else RST)
         session_str = f" | Sesja: {session_color}${realized_pnl:+.2f} ({realized_pct:+.2f}%){RST}" if realized_pnl != 0 else ""
+
+        # Wyciąganie identyfikatorów strategii dla danego rynku
+        strat_ids = []
+        strat_map = {'lag_sniper': 'LS', 'momentum': 'MOM', 'mid_arb': 'ARB', 'otm': 'OTM'}
+        for s_key, s_abbr in strat_map.items():
+            if s_key in cfg and 'id' in cfg[s_key]:
+                strat_ids.append(f"{s_abbr}: {cfg[s_key]['id']}")
+        ids_str = f" | IDs: {', '.join(strat_ids)}" if strat_ids else ""
 
         if tk in active_markets:
             m_id = active_markets[tk]['m_id']
@@ -56,7 +69,8 @@ def render_dashboard(configs, state, active_markets, trades, live_data, balance,
                 float_color = GRN if market_pnl > 0 else (RED if market_pnl < 0 else YLW)
                 floating_str = f" | Float PnL: {float_color}${market_pnl:+.2f} ({float_pct:+.2f}%){RST}"
 
-            out.append(f"{BLD}{cfg['symbol']} {cfg['timeframe']}{RST} {ver_txt} | Meta: {sec_left:05.1f}s | Baza: ${target:,.2f}{session_str}")
+            # Dodane `ids_str` bezpośrednio za targetem (Baza)
+            out.append(f"{BLD}{cfg['symbol']} {cfg['timeframe']}{RST} {ver_txt} | Meta: {sec_left:05.1f}s | Baza: ${target:,.2f}{ids_str}{session_str}")
             out.append(f"   ├─ Live: ${adj_p:,.2f} | D: {diff_trend} ${abs(diff):.2f}{floating_str}")
 
             if market_trades:
@@ -73,10 +87,10 @@ def render_dashboard(configs, state, active_markets, trades, live_data, balance,
             else:
                 out.append(f"   └─ L2 -> UP: {b_up*100:04.1f}c | DOWN: {b_dn*100:04.1f}c")
         else:
-            out.append(f"{BLD}{cfg['symbol']} {cfg['timeframe']}{RST} | Oczekiwanie... (Live: ${live_p:,.2f}){session_str}")
+            out.append(f"{BLD}{cfg['symbol']} {cfg['timeframe']}{RST} | Oczekiwanie... (Live: ${live_p:,.2f}){ids_str}{session_str}")
 
     # ==========================================
-    # SEKCJA NOWEGO PODSUMOWANIA PORTFELA
+    # SEKCJA PODSUMOWANIA PORTFELA
     # ==========================================
     total_floating_value = 0.0
     total_invested_value = 0.0
@@ -93,12 +107,15 @@ def render_dashboard(configs, state, active_markets, trades, live_data, balance,
     net_pnl_pct = (net_pnl / init_balance) * 100 if init_balance else 0.0
     pnl_color = GRN if net_pnl >= 0 else RED
     
+    # Wyliczanie czasu sesji i pobieranie ID
     start_ts = state.get('session_start', time.time())
     duration_sec = int(time.time() - start_ts)
     duration_str = str(datetime.timedelta(seconds=duration_sec))
+    session_id_str = state.get('session_id', 'Brak ID')
 
     out.append(f"\n{BLD}{CYN}--- STATUS PORTFELA ---{RST}")
-    out.append(f"Start: ${init_balance:.2f} | Czas sesji: {duration_str}")
+    # Zaktualizowana linia z ID Sesji
+    out.append(f"Start: ${init_balance:.2f} | Czas sesji: {duration_str} | Sesja ID: {session_id_str}")
     out.append(f"Wkład w pozycje: ${total_invested_value:.2f} | Rynkowa wycena opcji (Float): ${total_floating_value:.2f}")
     out.append(f"Całkowita wycena portfela: {BLD}${current_equity:.2f}{RST} (Zapas gotówki: ${balance:.2f})")
     out.append(f"Globalny PnL (Zrealizowany + Float): {pnl_color}${net_pnl:+.2f} ({net_pnl_pct:+.2f}%){RST}")

@@ -35,6 +35,9 @@ FULL_NAMES = {
     'BTC': 'bitcoin', 'ETH': 'ethereum', 'SOL': 'solana', 'XRP': 'xrp'
 }
 
+# --- UNIKALNY IDENTYFIKATOR SESJI ---
+SESSION_ID = f"sess_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+
 # 12 Rynków: 4x 15m, 4x 5m, 4x 1h (Oryginalna wysoce zyskowna konfiguracja + zablokowane OTM dla Altcoinów/1h)
 TRACKED_CONFIGS = [
     {
@@ -46,35 +49,27 @@ TRACKED_CONFIGS = [
         "offset": 0.0,
         "lag_sniper": {
             "prog_bazowy": 0.0007,
-            "prog_koncowka": 0.0006,
+            "prog_koncowka": 0.0002,
             "czas_koncowki": 30,
-            "lag_tol": 0.1,
-            "max_cena": 0.92,
-            "id": "xrp_15m_ls_1771685346",
-            "wr": 68.8
+            "lag_tol": 0.15,
+            "max_cena": 0.92
         },
         "momentum": {
             "delta": 0.0002,
             "max_p": 0.84,
             "win_start": 76,
-            "win_end": 30,
-            "id": "xrp_15m_mom_1771685374",
-            "wr": 88.0
+            "win_end": 34
         },
         "mid_arb": {
             "delta": 0.0001,
             "max_p": 0.45,
             "win_start": 200,
-            "win_end": 30,
-            "id": "xrp_15m_arb_1771685402",
-            "wr": 76.5
+            "win_end": 30
         },
         "otm": {
-            "win_start": 72,
-            "win_end": 20,
-            "max_p": 0.09,
-            "id": "xrp_15m_otm_1771685406",
-            "wr": 25.0
+            "win_start": 54,
+            "win_end": 50,
+            "max_p": 0.06
         }
     },
     {
@@ -87,34 +82,26 @@ TRACKED_CONFIGS = [
         "lag_sniper": {
             "prog_bazowy": 35,
             "prog_koncowka": 5,
-            "czas_koncowki": 45,
-            "lag_tol": 0.05,
-            "max_cena": 0.98,
-            "id": "btc_15m_ls_1771685408",
-            "wr": 84.3
+            "czas_koncowki": 35,
+            "lag_tol": 0.1,
+            "max_cena": 0.92
         },
         "momentum": {
-            "delta": 16,
+            "delta": 15,
             "max_p": 0.67,
-            "win_start": 72,
-            "win_end": 34,
-            "id": "btc_15m_mom_1771685468",
-            "wr": 80.0
+            "win_start": 82,
+            "win_end": 34
         },
         "mid_arb": {
-            "delta": 5,
-            "max_p": 0.45,
-            "win_start": 180,
-            "win_end": 30,
-            "id": "btc_15m_arb_1771685518",
-            "wr": 76.9
+            "delta": 11,
+            "max_p": 0.53,
+            "win_start": 140,
+            "win_end": 30
         },
         "otm": {
-            "win_start": 50,
-            "win_end": 32,
-            "max_p": 0.05,
-            "id": "btc_15m_otm_1771685530",
-            "wr": 46.2
+            "win_start": 64,
+            "win_end": 30,
+            "max_p": 0.02
         }
     },
     {
@@ -127,34 +114,26 @@ TRACKED_CONFIGS = [
         "lag_sniper": {
             "prog_bazowy": 1.0,
             "prog_koncowka": 0.5,
-            "czas_koncowki": 75,
+            "czas_koncowki": 30,
             "lag_tol": 0.15,
-            "max_cena": 0.92,
-            "id": "eth_15m_ls_1771685532",
-            "wr": 75.0
+            "max_cena": 0.92
         },
         "momentum": {
             "delta": 0.8,
-            "max_p": 0.83,
-            "win_start": 64,
-            "win_end": 48,
-            "id": "eth_15m_mom_1771685546",
-            "wr": 100.0
+            "max_p": 0.76,
+            "win_start": 78,
+            "win_end": 48
         },
         "mid_arb": {
-            "delta": 0.4,
+            "delta": 0.3,
             "max_p": 0.65,
             "win_start": 200,
-            "win_end": 50,
-            "id": "eth_15m_arb_1771685586",
-            "wr": 89.5
+            "win_end": 40
         },
         "otm": {
-            "win_start": 52,
+            "win_start": 54,
             "win_end": 20,
-            "max_p": 0.05,
-            "id": "eth_15m_otm_1771685593",
-            "wr": 40.0
+            "max_p": 0.04
         }
     },
     {
@@ -165,36 +144,28 @@ TRACKED_CONFIGS = [
         "decimals": 3,
         "offset": 0.0,
         "lag_sniper": {
-            "prog_bazowy": 0.06,
+            "prog_bazowy": 0.1,
             "prog_koncowka": 0.02,
-            "czas_koncowki": 75,
+            "czas_koncowki": 30,
             "lag_tol": 0.05,
-            "max_cena": 0.96,
-            "id": "sol_15m_ls_1771685594",
-            "wr": 81.2
+            "max_cena": 0.92
         },
         "momentum": {
             "delta": 0.02,
-            "max_p": 0.85,
-            "win_start": 60,
-            "win_end": 38,
-            "id": "sol_15m_mom_1771685626",
-            "wr": 100.0
+            "max_p": 0.81,
+            "win_start": 90,
+            "win_end": 50
         },
         "mid_arb": {
             "delta": 0.02,
-            "max_p": 0.65,
-            "win_start": 160,
-            "win_end": 30,
-            "id": "sol_15m_arb_1771685653",
-            "wr": 95.2
+            "max_p": 0.45,
+            "win_start": 180,
+            "win_end": 30
         },
         "otm": {
-            "win_start": 74,
+            "win_start": 76,
             "win_end": 20,
-            "max_p": 0.06,
-            "id": "sol_15m_otm_1771685657",
-            "wr": 44.4
+            "max_p": 0.08
         }
     },
     {
@@ -205,36 +176,28 @@ TRACKED_CONFIGS = [
         "decimals": 2,
         "offset": 0.0,
         "lag_sniper": {
-            "prog_bazowy": 35,
-            "prog_koncowka": 5,
-            "czas_koncowki": 55,
-            "lag_tol": 0.1,
-            "max_cena": 0.92,
-            "id": "btc_5m_ls_1771685659",
-            "wr": 70.5
+            "prog_bazowy": 22,
+            "prog_koncowka": 9,
+            "czas_koncowki": 80,
+            "lag_tol": 0.05,
+            "max_cena": 0.98
         },
         "momentum": {
-            "delta": 15,
-            "max_p": 0.76,
-            "win_start": 78,
-            "win_end": 40,
-            "id": "btc_5m_mom_1771685725",
-            "wr": 88.3
+            "delta": 25,
+            "max_p": 0.85,
+            "win_start": 90,
+            "win_end": 36
         },
         "mid_arb": {
-            "delta": 5,
+            "delta": 19,
             "max_p": 0.53,
-            "win_start": 200,
-            "win_end": 35,
-            "id": "btc_5m_arb_1771685782",
-            "wr": 77.3
+            "win_start": 180,
+            "win_end": 30
         },
         "otm": {
-            "win_start": 60,
-            "win_end": 20,
-            "max_p": 0.07,
-            "id": "btc_5m_otm_1771685799",
-            "wr": 38.6
+            "win_start": 54,
+            "win_end": 24,
+            "max_p": 0.03
         }
     },
     {
@@ -245,36 +208,28 @@ TRACKED_CONFIGS = [
         "decimals": 2,
         "offset": 0.0,
         "lag_sniper": {
-            "prog_bazowy": 1.0,
+            "prog_bazowy": 2.0,
             "prog_koncowka": 0.5,
-            "czas_koncowki": 65,
+            "czas_koncowki": 85,
             "lag_tol": 0.1,
-            "max_cena": 0.92,
-            "id": "eth_5m_ls_1771685801",
-            "wr": 73.6
+            "max_cena": 0.98
         },
         "momentum": {
-            "delta": 0.5,
-            "max_p": 0.81,
-            "win_start": 82,
-            "win_end": 32,
-            "id": "eth_5m_mom_1771685816",
-            "wr": 88.9
+            "delta": 1.0,
+            "max_p": 0.78,
+            "win_start": 88,
+            "win_end": 30
         },
         "mid_arb": {
             "delta": 0.4,
             "max_p": 0.51,
             "win_start": 190,
-            "win_end": 30,
-            "id": "eth_5m_arb_1771685860",
-            "wr": 80.3
+            "win_end": 40
         },
         "otm": {
             "win_start": 74,
-            "win_end": 22,
-            "max_p": 0.09,
-            "id": "eth_5m_otm_1771685869",
-            "wr": 32.2
+            "win_end": 26,
+            "max_p": 0.09
         }
     },
     {
@@ -286,35 +241,27 @@ TRACKED_CONFIGS = [
         "offset": 0.0,
         "lag_sniper": {
             "prog_bazowy": 0.09,
-            "prog_koncowka": 0.02,
-            "czas_koncowki": 45,
-            "lag_tol": 0.1,
-            "max_cena": 0.92,
-            "id": "sol_5m_ls_1771685871",
-            "wr": 71.6
+            "prog_koncowka": 0.03,
+            "czas_koncowki": 50,
+            "lag_tol": 0.05,
+            "max_cena": 0.92
         },
         "momentum": {
-            "delta": 0.02,
-            "max_p": 0.76,
-            "win_start": 86,
-            "win_end": 34,
-            "id": "sol_5m_mom_1771685902",
-            "wr": 84.8
+            "delta": 0.05,
+            "max_p": 0.83,
+            "win_start": 90,
+            "win_end": 32
         },
         "mid_arb": {
             "delta": 0.01,
-            "max_p": 0.49,
+            "max_p": 0.45,
             "win_start": 120,
-            "win_end": 30,
-            "id": "sol_5m_arb_1771685932",
-            "wr": 77.1
+            "win_end": 50
         },
         "otm": {
-            "win_start": 78,
-            "win_end": 20,
-            "max_p": 0.03,
-            "id": "sol_5m_otm_1771685937",
-            "wr": 33.3
+            "win_start": 58,
+            "win_end": 22,
+            "max_p": 0.03
         }
     },
     {
@@ -325,36 +272,28 @@ TRACKED_CONFIGS = [
         "decimals": 4,
         "offset": 0.0,
         "lag_sniper": {
-            "prog_bazowy": 0.0007,
-            "prog_koncowka": 0.0002,
-            "czas_koncowki": 75,
-            "lag_tol": 0.15,
-            "max_cena": 0.94,
-            "id": "xrp_5m_ls_1771685939",
-            "wr": 76.5
+            "prog_bazowy": 0.0019,
+            "prog_koncowka": 0.0003,
+            "czas_koncowki": 35,
+            "lag_tol": 0.05,
+            "max_cena": 0.98
         },
         "momentum": {
-            "delta": 0.0002,
-            "max_p": 0.69,
-            "win_start": 78,
-            "win_end": 32,
-            "id": "xrp_5m_mom_1771685969",
-            "wr": 90.0
+            "delta": 0.0003,
+            "max_p": 0.84,
+            "win_start": 70,
+            "win_end": 32
         },
         "mid_arb": {
             "delta": 0.0001,
             "max_p": 0.51,
             "win_start": 170,
-            "win_end": 30,
-            "id": "xrp_5m_arb_1771685999",
-            "wr": 76.7
+            "win_end": 40
         },
         "otm": {
-            "win_start": 54,
+            "win_start": 62,
             "win_end": 20,
-            "max_p": 0.09,
-            "id": "xrp_5m_otm_1771686004",
-            "wr": 52.1
+            "max_p": 0.09
         }
     },
     {
@@ -365,36 +304,23 @@ TRACKED_CONFIGS = [
         "decimals": 4,
         "offset": 0.0,
         "lag_sniper": {
-            "prog_bazowy": 0.0006,
-            "prog_koncowka": 0.0003,
-            "czas_koncowki": 50,
-            "lag_tol": 0.15,
-            "max_cena": 0.96,
-            "id": "xrp_1h_ls_1771686007",
-            "wr": 73.7
+            "prog_bazowy": 0.0014,
+            "prog_koncowka": 0.0002,
+            "czas_koncowki": 30,
+            "lag_tol": 0.05,
+            "max_cena": 0.92
         },
         "momentum": {
-            "delta": 0.0004,
-            "max_p": 0.85,
-            "win_start": 70,
-            "win_end": 38,
-            "id": "xrp_1h_mom_1771686031",
-            "wr": 100.0
+            "delta": 0.0013,
+            "max_p": 0.7,
+            "win_start": 60,
+            "win_end": 54
         },
         "mid_arb": {
-            "delta": 0.0002,
+            "delta": 0.0001,
             "max_p": 0.61,
-            "win_start": 200,
-            "win_end": 30,
-            "id": "xrp_1h_arb_1771686056",
-            "wr": 100.0
-        },
-        "otm": {
-            "win_start": 56,
-            "win_end": 20,
-            "max_p": 0.03,
-            "id": "xrp_1h_otm_1771686059",
-            "wr": 0.0
+            "win_start": 190,
+            "win_end": 30
         }
     },
     {
@@ -405,36 +331,23 @@ TRACKED_CONFIGS = [
         "decimals": 2,
         "offset": 0.0,
         "lag_sniper": {
-            "prog_bazowy": 26,
+            "prog_bazowy": 15,
             "prog_koncowka": 5,
             "czas_koncowki": 30,
             "lag_tol": 0.05,
-            "max_cena": 0.98,
-            "id": "btc_1h_ls_1771686061",
-            "wr": 73.7
+            "max_cena": 0.92
         },
         "momentum": {
-            "delta": 18,
-            "max_p": 0.71,
-            "win_start": 90,
-            "win_end": 30,
-            "id": "btc_1h_mom_1771686103",
-            "wr": 100.0
+            "delta": 29,
+            "max_p": 0.75,
+            "win_start": 68,
+            "win_end": 50
         },
         "mid_arb": {
-            "delta": 18,
-            "max_p": 0.45,
+            "delta": 5,
+            "max_p": 0.47,
             "win_start": 120,
-            "win_end": 30,
-            "id": "btc_1h_arb_1771686151",
-            "wr": 100.0
-        },
-        "otm": {
-            "win_start": 50,
-            "win_end": 34,
-            "max_p": 0.08,
-            "id": "btc_1h_otm_1771686162",
-            "wr": 50.0
+            "win_end": 30
         }
     },
     {
@@ -445,36 +358,28 @@ TRACKED_CONFIGS = [
         "decimals": 2,
         "offset": 0.0,
         "lag_sniper": {
-            "prog_bazowy": 1.6,
+            "prog_bazowy": 1.0,
             "prog_koncowka": 0.5,
             "czas_koncowki": 30,
-            "lag_tol": 0.15,
-            "max_cena": 0.98,
-            "id": "eth_1h_ls_1771686163",
-            "wr": 85.7
+            "lag_tol": 0.1,
+            "max_cena": 0.92
         },
         "momentum": {
             "delta": 0.5,
-            "max_p": 0.78,
-            "win_start": 64,
-            "win_end": 32,
-            "id": "eth_1h_mom_1771686176",
-            "wr": 100.0
+            "max_p": 0.72,
+            "win_start": 68,
+            "win_end": 38
         },
         "mid_arb": {
-            "delta": 0.3,
-            "max_p": 0.63,
-            "win_start": 190,
-            "win_end": 30,
-            "id": "eth_1h_arb_1771686214",
-            "wr": 66.7
+            "delta": 0.6,
+            "max_p": 0.45,
+            "win_start": 120,
+            "win_end": 30
         },
         "otm": {
-            "win_start": 84,
-            "win_end": 48,
-            "max_p": 0.04,
-            "id": "eth_1h_otm_1771686219",
-            "wr": 50.0
+            "win_start": 54,
+            "win_end": 22,
+            "max_p": 0.02
         }
     },
     {
@@ -487,41 +392,35 @@ TRACKED_CONFIGS = [
         "lag_sniper": {
             "prog_bazowy": 0.07,
             "prog_koncowka": 0.02,
-            "czas_koncowki": 30,
+            "czas_koncowki": 35,
             "lag_tol": 0.15,
-            "max_cena": 0.92,
-            "id": "sol_1h_ls_1771686221",
-            "wr": 92.3
+            "max_cena": 0.92
         },
         "momentum": {
             "delta": 0.02,
             "max_p": 0.84,
             "win_start": 70,
-            "win_end": 30,
-            "id": "sol_1h_mom_1771686249",
-            "wr": 100.0
+            "win_end": 46
         },
         "mid_arb": {
             "delta": 0.04,
             "max_p": 0.61,
-            "win_start": 170,
-            "win_end": 30,
-            "id": "sol_1h_arb_1771686274",
-            "wr": 100.0
+            "win_start": 120,
+            "win_end": 30
         },
         "otm": {
-            "win_start": 50,
+            "win_start": 54,
             "win_end": 20,
-            "max_p": 0.05,
-            "id": "sol_1h_otm_1771686277",
-            "wr": 25.0
+            "max_p": 0.05
         }
     }
 ]
+
 LOCAL_STATE = {
     'binance_live_price': {cfg['pair']: 0.0 for cfg in TRACKED_CONFIGS},
     'prev_price': {cfg['pair']: 0.0 for cfg in TRACKED_CONFIGS},
-    'polymarket_books': {}
+    'polymarket_books': {},
+    'session_id': SESSION_ID
 }
 
 # --- System puli ID transakcji ---
@@ -553,7 +452,6 @@ VERIFICATION_QUEUE = asyncio.PriorityQueue()
 # 0. SYSTEM LOGOWANIA BŁĘDÓW & HELPERS
 # ==========================================
 def get_verification_priority(symbol, timeframe):
-    # Rynki 5m są absolutnie najważniejsze bez względu na symbol waluty
     if timeframe == '5m': return 1
     if symbol == 'BTC' and timeframe == '15m': return 2
     if timeframe == '15m': return 3
@@ -593,17 +491,32 @@ def log_error(context_msg, e):
 # ==========================================
 async def init_db():
     async with aiosqlite.connect('data/polymarket.db') as db:
+        # Tabela rynkowa (dodana obsługa session_id)
         await db.execute('''CREATE TABLE IF NOT EXISTS market_logs_v11 (
             id INTEGER PRIMARY KEY AUTOINCREMENT, timeframe TEXT, market_id TEXT,
             target_price REAL, live_price REAL, 
             buy_up REAL, buy_up_vol REAL, sell_up REAL, sell_up_vol REAL, up_obi REAL,
             buy_down REAL, buy_down_vol REAL, sell_down REAL, sell_down_vol REAL, dn_obi REAL, 
-            fetched_at TEXT)''')
+            fetched_at TEXT, session_id TEXT)''')
             
+        try:
+            # Bezpieczna migracja dla istniejących baz danych
+            await db.execute("ALTER TABLE market_logs_v11 ADD COLUMN session_id TEXT")
+        except Exception:
+            pass
+            
+        # Tabela transakcji (dodana obsługa session_id)
         await db.execute('''CREATE TABLE IF NOT EXISTS trade_logs_v10 (
             trade_id TEXT PRIMARY KEY, market_id TEXT, timeframe TEXT, strategy TEXT, direction TEXT,
             invested REAL, entry_price REAL, entry_time TEXT, exit_price REAL, exit_time TEXT, pnl REAL,
-            reason TEXT)''')
+            reason TEXT, session_id TEXT)''')
+            
+        try:
+            # Bezpieczna migracja dla istniejących baz danych
+            await db.execute("ALTER TABLE trade_logs_v10 ADD COLUMN session_id TEXT")
+        except Exception:
+            pass
+
         await db.commit()
 
 async def flush_to_db():
@@ -613,12 +526,12 @@ async def flush_to_db():
         async with aiosqlite.connect('data/polymarket.db') as db:
             if MARKET_LOGS_BUFFER:
                 await db.executemany('''INSERT INTO market_logs_v11
-                    (timeframe, market_id, target_price, live_price, buy_up, buy_up_vol, sell_up, sell_up_vol, up_obi, buy_down, buy_down_vol, sell_down, sell_down_vol, dn_obi, fetched_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''', MARKET_LOGS_BUFFER)
+                    (timeframe, market_id, target_price, live_price, buy_up, buy_up_vol, sell_up, sell_up_vol, up_obi, buy_down, buy_down_vol, sell_down, sell_down_vol, dn_obi, fetched_at, session_id)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''', MARKET_LOGS_BUFFER)
             if TRADE_LOGS_BUFFER:
                 await db.executemany('''INSERT INTO trade_logs_v10
-                    (trade_id, market_id, timeframe, strategy, direction, invested, entry_price, entry_time, exit_price, exit_time, pnl, reason)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''', TRADE_LOGS_BUFFER)
+                    (trade_id, market_id, timeframe, strategy, direction, invested, entry_price, entry_time, exit_price, exit_time, pnl, reason, session_id)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''', TRADE_LOGS_BUFFER)
             await db.commit()
         log(f"💾 BULK SAVE: DB Sync ({len(MARKET_LOGS_BUFFER)} ticks LEVEL 2)")
         MARKET_LOGS_BUFFER.clear()
@@ -710,7 +623,6 @@ def execute_trade(market_id, timeframe, strategy, direction, base_stake, price, 
     PORTFOLIO_BALANCE -= size_usd
     shares = size_usd / price
     
-    # Naprawa błędu IntegrityError (Unikalny hash z czasem milisekundowym i UUID)
     unique_suffix = uuid.uuid4().hex[:8]
     trade_id = f"{market_id}_{len(PAPER_TRADES)}_{int(time.time() * 1000)}_{unique_suffix}"
     
@@ -748,7 +660,7 @@ def close_trade(trade, close_price, reason):
     TRADE_LOGS_BUFFER.append((
         trade['id'], trade['market_id'], f"{trade['symbol']}_{trade['timeframe']}",
         trade['strategy'], trade['direction'], trade['invested'], 
-        trade['entry_price'], trade['entry_time'], close_price, datetime.now().isoformat(), pnl, reason
+        trade['entry_price'], trade['entry_time'], close_price, datetime.now().isoformat(), pnl, reason, SESSION_ID
     ))
 
 def resolve_market(market_id, final_asset_price, target_price):
@@ -1009,7 +921,7 @@ async def fetch_and_track_markets():
                         adjusted_live_p,
                         b_up, b_up_vol, s_up, s_up_vol, up_obi,
                         b_dn, b_dn_vol, s_dn, s_dn_vol, dn_obi,
-                        datetime.now().isoformat()
+                        datetime.now().isoformat(), SESSION_ID
                     ))
             except Exception as e:
                 log_error("Market State Manager", e)
@@ -1125,6 +1037,8 @@ async def main():
     INITIAL_BALANCE = args.portfolio
     PORTFOLIO_BALANCE = args.portfolio
     LAST_FLUSH_TS = (int(time.time()) // 300) * 300
+    
+    log(f"🚀 INICJALIZACJA SYSTEMU. ID Sesji: {SESSION_ID}")
     
     await init_db()
     
