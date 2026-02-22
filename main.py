@@ -133,7 +133,6 @@ def perform_tech_dump():
         with open(filename, "w", encoding="utf-8") as f:
             json.dump(dump_data, f, indent=4)
             
-        # Audio confirmation and green log prompt
         sys.stdout.write('\a') 
         sys.stdout.flush()
         log(f"\033[1m\033[32m💾 PANIC DUMP SUCCESS: Memory state saved to {filename}\033[0m")
@@ -593,31 +592,31 @@ async def evaluate_strategies(trigger_source, pair_filter=None):
             if is_base_fetched:
                 m_cfg = config.get('mid_arb', {})
                 mid_arb_flag = f"mid_arb_{m_id}"
-                if m_cfg and m_cfg['win_end'] < sec_left < m_cfg['win_start'] and mid_arb_flag not in EXECUTED_STRAT[m_id]:
-                    if adj_delta > m_cfg['delta'] and 0 < b_up <= m_cfg['max_p']:
+                if m_cfg and m_cfg.get('win_end', 0) < sec_left < m_cfg.get('win_start', 0) and mid_arb_flag not in EXECUTED_STRAT[m_id]:
+                    if adj_delta > m_cfg.get('delta', 0) and 0 < b_up <= m_cfg.get('max_p', 0):
                         execute_trade(m_id, timeframe, "Mid-Game Arb", "UP", 2.0, b_up, symbol, m_cfg.get('wr', 50.0), m_cfg.get('id', ''))
                         EXECUTED_STRAT[m_id].append(mid_arb_flag)
-                    elif adj_delta < -m_cfg['delta'] and 0 < b_dn <= m_cfg['max_p']:
+                    elif adj_delta < -m_cfg.get('delta', 0) and 0 < b_dn <= m_cfg.get('max_p', 0):
                         execute_trade(m_id, timeframe, "Mid-Game Arb", "DOWN", 2.0, b_dn, symbol, m_cfg.get('wr', 50.0), m_cfg.get('id', ''))
                         EXECUTED_STRAT[m_id].append(mid_arb_flag)
                         
                 otm_cfg = config.get('otm', {})
                 otm_flag = f"otm_{m_id}"
-                if otm_cfg and otm_cfg.get('wr', 0.0) > 0.0 and otm_cfg['win_end'] <= sec_left <= otm_cfg['win_start'] and otm_flag not in EXECUTED_STRAT[m_id]:
+                if otm_cfg and otm_cfg.get('wr', 0.0) > 0.0 and otm_cfg.get('win_end', 0) <= sec_left <= otm_cfg.get('win_start', 0) and otm_flag not in EXECUTED_STRAT[m_id]:
                     if abs(adj_delta) < 40.0:
-                        if 0 < b_up <= otm_cfg['max_p']:
+                        if 0 < b_up <= otm_cfg.get('max_p', 0):
                             execute_trade(m_id, timeframe, "OTM Bargain", "UP", 1.0, b_up, symbol, otm_cfg.get('wr', 50.0), otm_cfg.get('id', ''))
                             EXECUTED_STRAT[m_id].append(otm_flag)
-                        elif 0 < b_dn <= otm_cfg['max_p']:
+                        elif 0 < b_dn <= otm_cfg.get('max_p', 0):
                             execute_trade(m_id, timeframe, "OTM Bargain", "DOWN", 1.0, b_dn, symbol, otm_cfg.get('wr', 50.0), otm_cfg.get('id', ''))
                             EXECUTED_STRAT[m_id].append(otm_flag)
                             
                 mom_cfg = config.get('momentum', {})
-                if mom_cfg and mom_cfg['win_end'] <= sec_left <= mom_cfg['win_start'] and 'momentum' not in EXECUTED_STRAT[m_id]:
-                    if adj_delta >= mom_cfg['delta'] and 0 < b_up <= mom_cfg['max_p']:
+                if mom_cfg and mom_cfg.get('win_end', 0) <= sec_left <= mom_cfg.get('win_start', 0) and 'momentum' not in EXECUTED_STRAT[m_id]:
+                    if adj_delta >= mom_cfg.get('delta', 0) and 0 < b_up <= mom_cfg.get('max_p', 0):
                         execute_trade(m_id, timeframe, "1-Min Mom", "UP", 1.0, b_up, symbol, mom_cfg.get('wr', 50.0), mom_cfg.get('id', ''))
                         EXECUTED_STRAT[m_id].append('momentum')
-                    elif adj_delta <= -mom_cfg['delta'] and 0 < b_dn <= mom_cfg['max_p']:
+                    elif adj_delta <= -mom_cfg.get('delta', 0) and 0 < b_dn <= mom_cfg.get('max_p', 0):
                         execute_trade(m_id, timeframe, "1-Min Mom", "DOWN", 1.0, b_dn, symbol, mom_cfg.get('wr', 50.0), mom_cfg.get('id', ''))
                         EXECUTED_STRAT[m_id].append('momentum')
                         
@@ -628,11 +627,21 @@ async def evaluate_strategies(trigger_source, pair_filter=None):
                 
                 sniper_cfg = config.get('lag_sniper', {})
                 if sniper_cfg:
-                    prog = sniper_cfg['end_threshold'] if sec_left <= sniper_cfg['end_time'] else sniper_cfg['base_threshold']
+                    # ======================================================================
+                    # BACKWARD COMPATIBILITY: Obsługa polskiego i angielskiego nazewnictwa z bazy 
+                    # Zabezpiecza przed błędem KeyError: 'end_time' wywołanym starymi rekordami.
+                    # ======================================================================
+                    end_time = sniper_cfg.get('end_time', sniper_cfg.get('czas_koncowki', 0))
+                    end_threshold = sniper_cfg.get('end_threshold', sniper_cfg.get('prog_koncowka', 0))
+                    base_threshold = sniper_cfg.get('base_threshold', sniper_cfg.get('prog_bazowy', 0))
+                    lag_tolerance = sniper_cfg.get('lag_tolerance', sniper_cfg.get('lag_tol', 0))
+                    max_price = sniper_cfg.get('max_price', sniper_cfg.get('max_cena', 0))
+
+                    prog = end_threshold if sec_left <= end_time else base_threshold
                     if 10 < sec_left < timing['interval_s'] - 5:
-                        if asset_jump >= prog and abs(up_change) <= sniper_cfg['lag_tolerance'] and 0 < b_up <= sniper_cfg['max_price']:
+                        if asset_jump >= prog and abs(up_change) <= lag_tolerance and 0 < b_up <= max_price:
                             execute_trade(m_id, timeframe, "Lag Sniper", "UP", 2.0, b_up, symbol, sniper_cfg.get('wr', 50.0), sniper_cfg.get('id', ''))
-                        elif asset_jump <= -prog and abs(dn_change) <= sniper_cfg['lag_tolerance'] and 0 < b_dn <= sniper_cfg['max_price']:
+                        elif asset_jump <= -prog and abs(dn_change) <= lag_tolerance and 0 < b_dn <= max_price:
                             execute_trade(m_id, timeframe, "Lag Sniper", "DOWN", 2.0, b_dn, symbol, sniper_cfg.get('wr', 50.0), sniper_cfg.get('id', ''))
                             
                 m_data['prev_up'], m_data['prev_dn'] = b_up, b_dn

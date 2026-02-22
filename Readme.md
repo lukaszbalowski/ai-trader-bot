@@ -1,65 +1,31 @@
-🚀 Watcher v10.27 | Enterprise HFT Polymarket Bot
-Watcher to zaawansowany system do handlu wysokiej częstotliwości (High-Frequency Trading) dla rynków opcji binarnych na platformie Polymarket. Wersja v10.27 łączy sprawdzoną, wysoką rentowność z nową architekturą bazy danych i priorytetyzacją zadań.
+# 🚀 Watcher v10.29 | Enterprise HFT Polymarket Bot
+Watcher is an advanced High-Frequency Trading (HFT) simulator for binary options on the Polymarket platform. Version 10.29 combines proven high profitability with a new database architecture, API-Only tracking, and task prioritization.
 
-🛠 Kluczowe Funkcje (v10.27)
+## 🛠 Key Features (v10.29)
 
-Multi-Market Performance: Równoległa obsługa 12 rynków (BTC, ETH, SOL, XRP) w interwałach 5m, 15m oraz 1h przy zachowaniu ultra-niskich opóźnień.
+* **Multi-Market Performance:** Parallel handling of 12 markets (BTC, ETH, SOL, XRP) across 5m, 15m, and 1h intervals while maintaining ultra-low latencies.
+* **Local Oracle Snapshot:** Innovative pre-warming mechanism using an internal data pipeline to instantly freeze Binance strike prices at exactly the 0-second mark, bypassing Polymarket API delays.
+* **Alpha Vault (Historical Optimization):** A module (`backtest_history.db`) registering every successful optimization in JSON format, building a knowledge base for future machine learning models.
+* **UUID Trade Security:** Implementation of cryptographic UUID hashes for each transaction, eliminating database writing errors (`IntegrityError`) during simultaneous HFT operations.
+* **Smart ID Pool (00-99):** Active position window management system with unique identifiers visible in the terminal.
 
+## 📈 Strategies (Optimized v10.29)
+The system uses dynamic thresholds adjusted to the specifics of each cryptocurrency:
 
-Priority Verification Queue: Silnik Playwrighta z priorytetem "P1" dla rynków 5-minutowych, co eliminuje opóźnienia weryfikacji w krótkich oknach czasowych.
-+1
+* **Lag Sniper:** Scalping millisecond price differences between Binance and Polymarket.
+* **1-Min Momentum:** Exploiting market momentum in the final phase of the contract.
+* **Mid-Game Arb:** Statistical arbitrage during the middle phase of the market.
+* **OTM Bargain:** Selective hunting for extremely cheap options (2-6 cents) in high-volatility markets.
 
+## ⚙️ Installation and Launch
+**Quick start (Docker & CLI Script):**
 
-Alpha Vault (Historyczna Optymalizacja): Nowy moduł backtest_history.db rejestrujący każdą udaną optymalizację w formacie JSON, budujący bazę wiedzy pod przyszłe modele uczenia maszynowego.
-+1
+Build the image:
+```bash
+./watcher.sh build
 
+Run the bot (Live Paper Trading with $500 portfolio):
 
-UUID Trade Security: Implementacja kryptograficznych skrótów UUID dla każdej transakcji, eliminująca błędy zapisu bazy danych (IntegrityError) przy jednoczesnych operacjach HFT.
-+2
+```bash
+./watcher.sh trader 500
 
-
-Smart ID Pool (00-99): System zarządzania aktywnymi oknami pozycji z unikalnymi identyfikatorami widocznymi w terminalu.
-+1
-
-📈 Strategie (Zoptymalizowane v10.27)
-System wykorzystuje dynamiczne progi dopasowane do specyfiki każdej waluty:
-
-
-Lag Sniper: Skalpowanie milisekundowych różnic kursowych między Binance a Polymarket.
-
-
-1-Min Momentum: Wykorzystanie pędu rynkowego w ostatniej fazie trwania kontraktu.
-
-
-Mid-Game Arb: Statystyczny arbitraż w środkowej fazie rynku.
-
-
-OTM Bargain: Selektywne polowanie na skrajnie tanie opcje (2-6 centów) na rynkach o wysokiej zmienności.
-
-⚙️ Instalacja i Uruchomienie
-Szybki start (Docker):
-Budowa obrazu:
-
-Bash
-docker build -t ai-trader .
-Uruchomienie bota (Live Paper Trading):
-
-Bash
-docker run --rm -it -v "$(pwd)/data:/app/data" ai-trader
-📊 Analiza i Backtesting
-Watcher v10.27 dostarcza kompletne środowisko diagnostyczne:
-
-
-Analiza Post-Mortem: Raportowanie realnej skuteczności WinRate i PnL z bazy transakcji trade_logs_v10.
-+2
-
-
-Grid Search: Symulacja milionów kombinacji na danych Level 2 (market_logs_v11) z automatycznym zapisem wyników do Alpha Vault.
-+1
-
-Komenda do analizy:
-
-Bash
-docker run --rm -v "$(pwd)/data:/app/data" ai-trader python backtester.py
-Autor: Łukasz Balowski
-Wersja: 10.27 Enterprise Multi-Timeframe Edition
