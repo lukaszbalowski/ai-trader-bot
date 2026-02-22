@@ -1,8 +1,8 @@
 websockets
 aiohttp 
 aiosqlite
-playwright
 pytz
 pandas
 numpy
 web3
+playwright

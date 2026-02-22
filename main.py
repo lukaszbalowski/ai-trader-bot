@@ -35,10 +35,11 @@ FULL_NAMES = {
     'BTC': 'bitcoin', 'ETH': 'ethereum', 'SOL': 'solana', 'XRP': 'xrp'
 }
 
-# --- UNIKALNY IDENTYFIKATOR SESJI ---
 SESSION_ID = f"sess_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
 
-# 12 Rynków: 4x 15m, 4x 5m, 4x 1h (Oryginalna wysoce zyskowna konfiguracja + zablokowane OTM dla Altcoinów/1h)
+# ==========================================
+# TRACKED CONFIGS
+# ==========================================
 TRACKED_CONFIGS = [
     {
         "symbol": "XRP",
@@ -48,19 +49,20 @@ TRACKED_CONFIGS = [
         "decimals": 4,
         "offset": 0.0,
         "lag_sniper": {
-            "prog_bazowy": 0.0011,
-            "prog_koncowka": 0.0002,
-            "czas_koncowki": 65,
+            "prog_bazowy": 0.0007,
+            "prog_koncowka": 0.0003,
+            "czas_koncowki": 70,
             "lag_tol": 0.05,
-            "max_cena": 0.98,
-            "wr": 100.0
+            "max_cena": 0.92,
+            "id": "xrp_15m_ls_1771765596",
+            "wr": 68.3
         },
         "momentum": {
             "delta": 0.0002,
             "max_p": 0.83,
             "win_start": 60,
             "win_end": 34,
-            "id": "xrp_15m_mom_1771765031",
+            "id": "xrp_15m_mom_1771765637",
             "wr": 93.1
         },
         "mid_arb": {
@@ -68,14 +70,15 @@ TRACKED_CONFIGS = [
             "max_p": 0.55,
             "win_start": 170,
             "win_end": 30,
-            "id": "xrp_15m_arb_1771765068",
+            "id": "xrp_15m_arb_1771765674",
             "wr": 78.3
         },
         "otm": {
-            "win_start": 62,
-            "win_end": 20,
-            "max_p": 0.03,
-            "wr": 100.0
+            "win_start": 60,
+            "win_end": 22,
+            "max_p": 0.07,
+            "id": "xrp_15m_otm_1771765680",
+            "wr": 50.0
         }
     },
     {
@@ -88,24 +91,27 @@ TRACKED_CONFIGS = [
         "lag_sniper": {
             "prog_bazowy": 35,
             "prog_koncowka": 5,
-            "czas_koncowki": 45,
+            "czas_koncowki": 80,
             "lag_tol": 0.05,
-            "max_cena": 0.98,
-            "wr": 84.3
+            "max_cena": 0.92,
+            "id": "btc_15m_ls_1771765682",
+            "wr": 65.8
         },
         "momentum": {
-            "delta": 16,
+            "delta": 15,
             "max_p": 0.67,
             "win_start": 72,
-            "win_end": 40,
-            "wr": 80.0
+            "win_end": 36,
+            "id": "btc_15m_mom_1771765765",
+            "wr": 69.2
         },
         "mid_arb": {
             "delta": 5,
             "max_p": 0.45,
-            "win_start": 180,
+            "win_start": 200,
             "win_end": 30,
-            "wr": 76.9
+            "id": "btc_15m_arb_1771765834",
+            "wr": 81.0
         },
         "otm": {
             "win_start": 58,
@@ -148,10 +154,11 @@ TRACKED_CONFIGS = [
             "wr": 81.0
         },
         "otm": {
-            "win_start": 62,
-            "win_end": 40,
+            "win_start": 58,
+            "win_end": 20,
             "max_p": 0.04,
-            "wr": 100.0
+            "id": "eth_15m_otm_1771765940",
+            "wr": 45.7
         }
     },
     {
@@ -180,10 +187,11 @@ TRACKED_CONFIGS = [
         },
         "mid_arb": {
             "delta": 0.02,
-            "max_p": 0.45,
-            "win_start": 180,
+            "max_p": 0.65,
+            "win_start": 160,
             "win_end": 30,
-            "wr": 83.3
+            "id": "sol_15m_arb_1771766028",
+            "wr": 92.9
         },
         "otm": {
             "win_start": 78,
@@ -211,10 +219,11 @@ TRACKED_CONFIGS = [
         },
         "momentum": {
             "delta": 15,
-            "max_p": 0.76,
+            "max_p": 0.75,
             "win_start": 78,
-            "win_end": 40,
-            "wr": 88.3
+            "win_end": 30,
+            "id": "btc_5m_mom_1771766131",
+            "wr": 82.4
         },
         "mid_arb": {
             "delta": 5,
@@ -225,10 +234,11 @@ TRACKED_CONFIGS = [
             "wr": 74.7
         },
         "otm": {
-            "win_start": 54,
-            "win_end": 24,
-            "max_p": 0.03,
-            "wr": 33.3
+            "win_start": 90,
+            "win_end": 22,
+            "max_p": 0.06,
+            "id": "btc_5m_otm_1771766235",
+            "wr": 47.9
         }
     },
     {
@@ -239,32 +249,36 @@ TRACKED_CONFIGS = [
         "decimals": 2,
         "offset": 0.0,
         "lag_sniper": {
-            "prog_bazowy": 1.2,
+            "prog_bazowy": 1.0,
             "prog_koncowka": 0.5,
-            "czas_koncowki": 30,
-            "lag_tol": 0.05,
+            "czas_koncowki": 55,
+            "lag_tol": 0.1,
             "max_cena": 0.92,
-            "wr": 75.0
+            "id": "eth_5m_ls_1771766238",
+            "wr": 69.8
         },
         "momentum": {
-            "delta": 0.6,
-            "max_p": 0.79,
-            "win_start": 90,
-            "win_end": 32,
-            "wr": 100.0
+            "delta": 0.5,
+            "max_p": 0.8,
+            "win_start": 82,
+            "win_end": 30,
+            "id": "eth_5m_mom_1771766259",
+            "wr": 86.0
         },
         "mid_arb": {
-            "delta": 0.4,
-            "max_p": 0.51,
+            "delta": 0.3,
+            "max_p": 0.53,
             "win_start": 190,
-            "win_end": 40,
-            "wr": 84.2
+            "win_end": 30,
+            "id": "eth_5m_arb_1771766321",
+            "wr": 69.8
         },
         "otm": {
-            "win_start": 62,
-            "win_end": 38,
-            "max_p": 0.02,
-            "wr": 40.0
+            "win_start": 50,
+            "win_end": 22,
+            "max_p": 0.04,
+            "id": "eth_5m_otm_1771766333",
+            "wr": 37.3
         }
     },
     {
@@ -276,31 +290,35 @@ TRACKED_CONFIGS = [
         "offset": 0.0,
         "lag_sniper": {
             "prog_bazowy": 0.05,
-            "prog_koncowka": 0.04,
-            "czas_koncowki": 60,
-            "lag_tol": 0.1,
-            "max_cena": 0.98,
-            "wr": 88.9
+            "prog_koncowka": 0.02,
+            "czas_koncowki": 85,
+            "lag_tol": 0.05,
+            "max_cena": 0.92,
+            "id": "sol_5m_ls_1771766336",
+            "wr": 75.9
         },
         "momentum": {
             "delta": 0.02,
-            "max_p": 0.76,
+            "max_p": 0.75,
             "win_start": 86,
-            "win_end": 32,
-            "wr": 84.8
+            "win_end": 30,
+            "id": "sol_5m_mom_1771766380",
+            "wr": 81.0
         },
         "mid_arb": {
             "delta": 0.01,
-            "max_p": 0.49,
-            "win_start": 120,
+            "max_p": 0.45,
+            "win_start": 190,
             "win_end": 30,
-            "wr": 77.1
+            "id": "sol_5m_arb_1771766421",
+            "wr": 70.5
         },
         "otm": {
-            "win_start": 58,
-            "win_end": 22,
+            "win_start": 52,
+            "win_end": 20,
             "max_p": 0.03,
-            "wr": 45.5
+            "id": "sol_5m_otm_1771766429",
+            "wr": 44.4
         }
     },
     {
@@ -320,24 +338,27 @@ TRACKED_CONFIGS = [
             "wr": 76.7
         },
         "momentum": {
-            "delta": 0.0005,
-            "max_p": 0.81,
-            "win_start": 68,
-            "win_end": 36,
-            "wr": 91.7
+            "delta": 0.0002,
+            "max_p": 0.69,
+            "win_start": 78,
+            "win_end": 30,
+            "id": "xrp_5m_mom_1771766473",
+            "wr": 88.3
         },
         "mid_arb": {
-            "delta": 0.0003,
-            "max_p": 0.47,
-            "win_start": 170,
+            "delta": 0.0001,
+            "max_p": 0.51,
+            "win_start": 140,
             "win_end": 30,
-            "wr": 84.6
+            "id": "xrp_5m_arb_1771766516",
+            "wr": 75.8
         },
         "otm": {
-            "win_start": 82,
-            "win_end": 20,
-            "max_p": 0.07,
-            "wr": 58.3
+            "win_start": 60,
+            "win_end": 22,
+            "max_p": 0.09,
+            "id": "xrp_5m_otm_1771766523",
+            "wr": 57.1
         }
     },
     {
@@ -348,18 +369,20 @@ TRACKED_CONFIGS = [
         "decimals": 4,
         "offset": 0.0,
         "lag_sniper": {
-            "prog_bazowy": 0.001,
-            "prog_koncowka": 0.0002,
-            "czas_koncowki": 30,
-            "lag_tol": 0.05,
-            "max_cena": 0.92,
-            "wr": 100.0
+            "prog_bazowy": 0.0006,
+            "prog_koncowka": 0.0003,
+            "czas_koncowki": 50,
+            "lag_tol": 0.15,
+            "max_cena": 0.96,
+            "id": "xrp_1h_ls_1771766526",
+            "wr": 70.4
         },
         "momentum": {
-            "delta": 0.0004,
-            "max_p": 0.76,
+            "delta": 0.0005,
+            "max_p": 0.8,
             "win_start": 70,
-            "win_end": 38,
+            "win_end": 40,
+            "id": "xrp_1h_mom_1771766562",
             "wr": 100.0
         },
         "mid_arb": {
@@ -367,13 +390,15 @@ TRACKED_CONFIGS = [
             "max_p": 0.61,
             "win_start": 200,
             "win_end": 30,
+            "id": "xrp_1h_arb_1771766598",
             "wr": 100.0
         },
         "otm": {
-            "win_start": 58,
+            "win_start": 56,
             "win_end": 20,
-            "max_p": 0.02,
-            "wr": 100.0
+            "max_p": 0.03,
+            "id": "xrp_1h_otm_1771766602",
+            "wr": 0.0
         }
     },
     {
@@ -384,18 +409,20 @@ TRACKED_CONFIGS = [
         "decimals": 2,
         "offset": 0.0,
         "lag_sniper": {
-            "prog_bazowy": 15,
+            "prog_bazowy": 26,
             "prog_koncowka": 5,
             "czas_koncowki": 30,
             "lag_tol": 0.05,
-            "max_cena": 0.92,
-            "wr": 75.0
+            "max_cena": 0.98,
+            "id": "btc_1h_ls_1771766604",
+            "wr": 74.1
         },
         "momentum": {
             "delta": 18,
-            "max_p": 0.81,
-            "win_start": 90,
-            "win_end": 36,
+            "max_p": 0.83,
+            "win_start": 84,
+            "win_end": 32,
+            "id": "btc_1h_mom_1771766666",
             "wr": 100.0
         },
         "mid_arb": {
@@ -403,12 +430,14 @@ TRACKED_CONFIGS = [
             "max_p": 0.45,
             "win_start": 120,
             "win_end": 30,
+            "id": "btc_1h_arb_1771766732",
             "wr": 100.0
         },
         "otm": {
             "win_start": 50,
             "win_end": 20,
             "max_p": 0.02,
+            "id": "btc_1h_otm_1771766747",
             "wr": 50.0
         }
     },
@@ -421,31 +450,35 @@ TRACKED_CONFIGS = [
         "offset": 0.0,
         "lag_sniper": {
             "prog_bazowy": 1.6,
-            "prog_koncowka": 0.5,
-            "czas_koncowki": 30,
+            "prog_koncowka": 0.7,
+            "czas_koncowki": 75,
             "lag_tol": 0.15,
             "max_cena": 0.98,
-            "wr": 85.7
+            "id": "eth_1h_ls_1771766749",
+            "wr": 83.3
         },
         "momentum": {
-            "delta": 0.5,
-            "max_p": 0.72,
-            "win_start": 68,
-            "win_end": 38,
+            "delta": 0.8,
+            "max_p": 0.71,
+            "win_start": 70,
+            "win_end": 42,
+            "id": "eth_1h_mom_1771766767",
             "wr": 100.0
         },
         "mid_arb": {
-            "delta": 0.6,
-            "max_p": 0.45,
-            "win_start": 120,
+            "delta": 0.3,
+            "max_p": 0.55,
+            "win_start": 190,
             "win_end": 30,
-            "wr": 100.0
+            "id": "eth_1h_arb_1771766821",
+            "wr": 50.0
         },
         "otm": {
-            "win_start": 88,
-            "win_end": 48,
+            "win_start": 86,
+            "win_end": 50,
             "max_p": 0.04,
-            "wr": 50.0
+            "id": "eth_1h_otm_1771766828",
+            "wr": 60.0
         }
     },
     {
@@ -461,13 +494,15 @@ TRACKED_CONFIGS = [
             "czas_koncowki": 30,
             "lag_tol": 0.15,
             "max_cena": 0.92,
-            "wr": 92.3
+            "id": "sol_1h_ls_1771766830",
+            "wr": 85.0
         },
         "momentum": {
             "delta": 0.02,
-            "max_p": 0.84,
+            "max_p": 0.83,
             "win_start": 70,
             "win_end": 46,
+            "id": "sol_1h_mom_1771766872",
             "wr": 100.0
         },
         "mid_arb": {
@@ -475,13 +510,15 @@ TRACKED_CONFIGS = [
             "max_p": 0.61,
             "win_start": 170,
             "win_end": 30,
+            "id": "sol_1h_arb_1771766907",
             "wr": 100.0
         },
         "otm": {
-            "win_start": 54,
+            "win_start": 50,
             "win_end": 20,
             "max_p": 0.05,
-            "wr": 50.0
+            "id": "sol_1h_otm_1771766912",
+            "wr": 20.0
         }
     }
 ]
@@ -494,7 +531,7 @@ LOCAL_STATE = {
 }
 
 # --- System puli ID transakcji ---
-AVAILABLE_TRADE_IDS = list(range(100)) # ID od 0 do 99
+AVAILABLE_TRADE_IDS = list(range(100))
 
 LOCKED_PRICES = {}
 MARKET_CACHE = {}
@@ -561,32 +598,25 @@ def log_error(context_msg, e):
 # ==========================================
 async def init_db():
     async with aiosqlite.connect('data/polymarket.db') as db:
-        # Tabela rynkowa (dodana obsługa session_id)
         await db.execute('''CREATE TABLE IF NOT EXISTS market_logs_v11 (
             id INTEGER PRIMARY KEY AUTOINCREMENT, timeframe TEXT, market_id TEXT,
             target_price REAL, live_price REAL, 
             buy_up REAL, buy_up_vol REAL, sell_up REAL, sell_up_vol REAL, up_obi REAL,
             buy_down REAL, buy_down_vol REAL, sell_down REAL, sell_down_vol REAL, dn_obi REAL, 
             fetched_at TEXT, session_id TEXT)''')
-            
         try:
-            # Bezpieczna migracja dla istniejących baz danych
             await db.execute("ALTER TABLE market_logs_v11 ADD COLUMN session_id TEXT")
         except Exception:
             pass
             
-        # Tabela transakcji (dodana obsługa session_id)
         await db.execute('''CREATE TABLE IF NOT EXISTS trade_logs_v10 (
             trade_id TEXT PRIMARY KEY, market_id TEXT, timeframe TEXT, strategy TEXT, direction TEXT,
             invested REAL, entry_price REAL, entry_time TEXT, exit_price REAL, exit_time TEXT, pnl REAL,
             reason TEXT, session_id TEXT)''')
-            
         try:
-            # Bezpieczna migracja dla istniejących baz danych
             await db.execute("ALTER TABLE trade_logs_v10 ADD COLUMN session_id TEXT")
         except Exception:
             pass
-
         await db.commit()
 
 async def flush_to_db():
@@ -672,34 +702,25 @@ def calculate_dynamic_size(base_stake, win_rate, market_id):
 
 def execute_trade(market_id, timeframe, strategy, direction, base_stake, price, symbol, win_rate, strat_id=""):
     global PORTFOLIO_BALANCE
-    
     if not AVAILABLE_TRADE_IDS:
-        log_error("ID Pool Exhausted", Exception("Brakuje wolnych identyfikatorów (0-99). Zawieś nowe transakcje."))
+        log_error("ID Pool Exhausted", Exception("Brakuje wolnych identyfikatorów."))
         return
-    
     now = time.time()
     if market_id not in TRADE_TIMESTAMPS: TRADE_TIMESTAMPS[market_id] = []
     TRADE_TIMESTAMPS[market_id] = [ts for ts in TRADE_TIMESTAMPS[market_id] if now - ts <= BURST_LIMIT_SEC]
     if len(TRADE_TIMESTAMPS[market_id]) >= BURST_LIMIT_TRADES:
-        log_error("Burst Guard", Exception(f"Zablokowano wejście na {symbol} - Zbyt duża częstotliwość transakcji."))
         return
-
     size_usd = calculate_dynamic_size(base_stake, win_rate, market_id)
     if price <= 0 or size_usd < base_stake or size_usd > PORTFOLIO_BALANCE: 
         return
-    
     short_id = AVAILABLE_TRADE_IDS.pop(0)
-    
     PORTFOLIO_BALANCE -= size_usd
     shares = size_usd / price
-    
     unique_suffix = uuid.uuid4().hex[:8]
     trade_id = f"{market_id}_{len(PAPER_TRADES)}_{int(time.time() * 1000)}_{unique_suffix}"
     
     trade = {
-        'id': trade_id,
-        'short_id': short_id,
-        'strat_id': strat_id,
+        'id': trade_id, 'short_id': short_id, 'strat_id': strat_id,
         'market_id': market_id, 'timeframe': timeframe, 'symbol': symbol,
         'strategy': strategy, 'direction': direction, 
         'entry_price': price, 'entry_time': datetime.now().isoformat(),
@@ -707,9 +728,7 @@ def execute_trade(market_id, timeframe, strategy, direction, base_stake, price, 
     }
     PAPER_TRADES.append(trade)
     TRADE_TIMESTAMPS[market_id].append(now)
-    
-    sys.stdout.write('\a')
-    sys.stdout.flush()
+    sys.stdout.write('\a'); sys.stdout.flush()
     log(f"✅ [ID: {short_id:02d}] ZAKUP {symbol} {strategy} ({timeframe}) | {direction} | Wkład: ${size_usd:.2f} | Cena: {price*100:.1f}¢")
 
 def close_trade(trade, close_price, reason):
@@ -718,15 +737,11 @@ def close_trade(trade, close_price, reason):
     pnl = return_value - trade['invested']
     PORTFOLIO_BALANCE += return_value
     TRADE_HISTORY.append({'pnl': pnl, 'reason': reason, **trade})
-    
     PAPER_TRADES.remove(trade)
-    
     AVAILABLE_TRADE_IDS.append(trade['short_id'])
     AVAILABLE_TRADE_IDS.sort()
-    
     icon = "💰" if pnl > 0 else "🩸"
     log(f"{icon} [ID: {trade['short_id']:02d}] SPRZEDAŻ {trade['symbol']} {trade['strategy']} [{trade['timeframe']}] ({trade['direction']}) | {reason} | PnL: ${pnl:+.2f}")
-    
     TRADE_LOGS_BUFFER.append((
         trade['id'], trade['market_id'], f"{trade['symbol']}_{trade['timeframe']}",
         trade['strategy'], trade['direction'], trade['invested'], 
@@ -744,23 +759,17 @@ def extract_orderbook_metrics(token_id):
     book = LOCAL_STATE['polymarket_books'].get(token_id, {'bids': {}, 'asks': {}})
     valid_bids = {p: s for p, s in book['bids'].items() if s > 0 and 0.005 < p < 0.995}
     valid_asks = {p: s for p, s in book['asks'].items() if s > 0 and 0.005 < p < 0.995}
-    
     best_bid = max(valid_bids.keys()) if valid_bids else 0.0
     best_bid_vol = valid_bids.get(best_bid, 0.0) if best_bid else 0.0
-    
     best_ask = min(valid_asks.keys()) if valid_asks else 0.0
     best_ask_vol = valid_asks.get(best_ask, 0.0) if best_ask else 0.0
-    
     top_bids = sorted(valid_bids.keys(), reverse=True)[:5]
     bid_vol_sum = sum(valid_bids[p] for p in top_bids)
-    
     top_asks = sorted(valid_asks.keys())[:5]
     ask_vol_sum = sum(valid_asks[p] for p in top_asks)
-    
     obi = 0.0
     if bid_vol_sum + ask_vol_sum > 0:
         obi = (bid_vol_sum - ask_vol_sum) / (bid_vol_sum + ask_vol_sum)
-        
     return best_ask, best_ask_vol, best_bid, best_bid_vol, obi
 
 # ==========================================
@@ -770,21 +779,18 @@ async def binance_ws_listener():
     streams = list(set([cfg['pair'].lower() + "@ticker" for cfg in TRACKED_CONFIGS]))
     stream_url = "/".join(streams)
     url = f"wss://stream.binance.com:9443/stream?streams={stream_url}"
-    
     while True:
         try:
             async with websockets.connect(url, ping_interval=20, ping_timeout=20) as ws:
-                log(f"[WS] Podłączono do Binance (Tokens: {len(streams)})")
+                log(f"[WS] Podłączono do Binance")
                 async for msg in ws:
                     data = json.loads(msg)
                     if 'data' in data and 's' in data['data']:
                         pair = data['data']['s']
                         new_price = float(data['data']['c'])
-                        
                         if new_price != LOCAL_STATE['binance_live_price'].get(pair, 0.0):
                             LOCAL_STATE['prev_price'][pair] = LOCAL_STATE['binance_live_price'].get(pair, 0.0)
                             LOCAL_STATE['binance_live_price'][pair] = new_price
-                            
                         await evaluate_strategies("BINANCE_TICK", pair_filter=pair)
         except Exception as e:
             log_error("Binance WebSocket", e)
@@ -793,14 +799,16 @@ async def binance_ws_listener():
 async def polymarket_ws_listener():
     url = "wss://ws-subscriptions-clob.polymarket.com/ws/market"
     subscribed_tokens = set()
-    
     while True:
         try:
             async with websockets.connect(url, ping_interval=20, ping_timeout=20) as ws:
                 log("[WS] Podłączono do Polymarket CLOB")
                 if subscribed_tokens:
-                    await ws.send(json.dumps({"assets_ids": list(subscribed_tokens), "type": "market"}))
-                    
+                    await ws.send(json.dumps({
+                        "assets_ids": list(subscribed_tokens), 
+                        "type": "market",
+                        "custom_feature_enabled": True
+                    }))
                 async def process_queue(websocket):
                     try:
                         while True:
@@ -814,27 +822,21 @@ async def polymarket_ws_listener():
                                 await websocket.close()
                                 break
                     except asyncio.CancelledError: pass
-                    
                 queue_task = asyncio.create_task(process_queue(ws))
-                
                 try:
                     async for msg in ws:
                         if not msg.startswith(('{', '[')): continue
                         try: parsed_msg = json.loads(msg)
                         except: continue
-                        
                         if not isinstance(parsed_msg, list): parsed_msg = [parsed_msg]
-                        
                         for data in parsed_msg:
                             event_type = data.get('event_type', '')
-                            
                             if event_type == 'book' or 'bids' in data or 'asks' in data:
                                 t_id = data.get('asset_id')
                                 if t_id:
                                     LOCAL_STATE['polymarket_books'][t_id] = {'bids': {}, 'asks': {}}
                                     for bid in data.get('bids', []): LOCAL_STATE['polymarket_books'][t_id]['bids'][float(bid['price'])] = float(bid['size'])
                                     for ask in data.get('asks', []): LOCAL_STATE['polymarket_books'][t_id]['asks'][float(ask['price'])] = float(ask['size'])
-                                    
                             if event_type == 'price_change' or 'price_changes' in data:
                                 for change in data.get('price_changes', []):
                                     t_id = change.get('asset_id')
@@ -851,16 +853,21 @@ async def polymarket_ws_listener():
             await asyncio.sleep(0.1)
 
 # ==========================================
-# 5. MARKET STATE MANAGER & DYNAMIC SLUG ROUTER
+# 5. MARKET STATE MANAGER (HYBRYDA API + PLAYWRIGHT FALLBACK)
 # ==========================================
 async def playwright_verification_worker():
-    log("🕵️ Playwright Worker online. (Oczekuje na priorytetyzację...)")
+    """Wątek ratunkowy: Otwiera stronę i szuka ceny w HTML, tylko jeśli API zawiedzie."""
+    log("🕵️ Playwright Fallback Worker online. (Gotowy na awarię API...)")
     try:
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=True, args=['--no-sandbox', '--disable-setuid-sandbox'])
             while True:
                 priority, req_ts, slug, m_id = await VERIFICATION_QUEUE.get()
                 try:
+                    # Sprawdzamy czy rynek w międzyczasie nie został zweryfikowany przez API
+                    if m_id in LOCKED_PRICES and LOCKED_PRICES[m_id].get('verified'):
+                        continue
+
                     url = f"https://polymarket.com/event/{slug}"
                     context = await browser.new_context(user_agent="Mozilla/5.0")
                     page = await context.new_page()
@@ -869,13 +876,21 @@ async def playwright_verification_worker():
                     content = await page.content()
                     await context.close()
                     
-                    match = re.search(r'Price to beat.*?\$(\d{1,3}(?:,\d{3})*(?:\.\d+)?)', content, re.IGNORECASE | re.DOTALL)
+                    # Wyszukiwanie ceny (Fallback)
+                    match = re.search(r'(?:Price to beat|Target Price).*?\$(\d{1,3}(?:,\d{3})*(?:\.\d+)?)', content, re.IGNORECASE | re.DOTALL)
                     if match:
                         v = float(match.group(1).replace(',', ''))
                         if m_id in LOCKED_PRICES:
-                            LOCKED_PRICES[m_id]['price'] = v
-                            LOCKED_PRICES[m_id]['verified'] = True
-                            log(f"👁️ [VERIFIED] Pobrana baza: ${v} dla {slug} (Priorytet: P{priority})")
+                            live_p = LOCKED_PRICES[m_id].get('price', 0.0)
+                            sanity_limit = 0.15 # 15% tolerancji dla Fallbacku
+                            
+                            if live_p > 0 and abs(v - live_p) / live_p <= sanity_limit:
+                                LOCKED_PRICES[m_id]['price'] = v
+                                LOCKED_PRICES[m_id]['verified'] = True
+                                log(f"🦾 [FALLBACK VERIFIED] Playwright odczytał: ${v} dla {slug}")
+                            else:
+                                log(f"⚠️ [FALLBACK REJECTED] Playwright odrzucił dziwną cenę: ${v}")
+                                
                 except Exception as e:
                     log_error(f"Playwright Worker ({slug})", e)
                 finally:
@@ -883,6 +898,7 @@ async def playwright_verification_worker():
                     await asyncio.sleep(3)
     except Exception as e:
         log_error("Fatal Playwright Crash", e)
+
 
 async def fetch_and_track_markets():
     tz_et = pytz.timezone('America/New_York')
@@ -898,12 +914,10 @@ async def fetch_and_track_markets():
                     interval_s = config['interval']
                     base_ts = (int(now_et.timestamp()) // interval_s) * interval_s
                     start_time = datetime.fromtimestamp(base_ts, tz_et)
-                    
                     sec_since_start = (now_et - start_time).total_seconds()
                     sec_left = interval_s - sec_since_start
                     
                     slug_standard = f"{config['symbol'].lower()}-updown-{config['timeframe']}-{base_ts}"
-                    
                     month_name = start_time.strftime('%B').lower()
                     day = start_time.strftime('%-d')
                     hour_str = start_time.strftime('%-I%p').lower()
@@ -917,7 +931,6 @@ async def fetch_and_track_markets():
                         if candidate in MARKET_CACHE:
                             active_slug = candidate
                             break
-                            
                         async with session.get(f"https://gamma-api.polymarket.com/events?slug={candidate}") as resp:
                             if resp.status == 200:
                                 res = await resp.json()
@@ -930,7 +943,30 @@ async def fetch_and_track_markets():
                                         if m.get('active') and (time_str in q_text or time_str_alt in q_text):
                                             outcomes = eval(m.get('outcomes', '[]'))
                                             clob_ids = eval(m.get('clobTokenIds', '[]'))
-                                            MARKET_CACHE[candidate] = {'id': str(m.get('id')), 'up_id': clob_ids[outcomes.index("Up")], 'dn_id': clob_ids[outcomes.index("Down")], 'config': config}
+                                            
+                                            # --- PODEJŚCIE 1: SZYBKIE API (SMART REGEX) ---
+                                            api_target = None
+                                            text_to_search = f"{m.get('question', '')} {m.get('description', '')} {m.get('title', '')}"
+                                            matches = re.findall(r'\$\s*(\d+(?:[,\s]\d+)*(?:\.\d+)?)', text_to_search)
+                                            sanity_limit = SANITY_THRESHOLDS.get(config['symbol'], 0.10)
+                                            
+                                            for match_str in matches:
+                                                try:
+                                                    clean_val = match_str.replace(',', '').replace(' ', '')
+                                                    candidate_val = float(clean_val)
+                                                    if live_p > 0 and abs(candidate_val - live_p) / live_p <= sanity_limit:
+                                                        api_target = candidate_val
+                                                        break 
+                                                except ValueError:
+                                                    continue
+                                            
+                                            MARKET_CACHE[candidate] = {
+                                                'id': str(m.get('id')), 
+                                                'up_id': clob_ids[outcomes.index("Up")], 
+                                                'dn_id': clob_ids[outcomes.index("Down")], 
+                                                'config': config,
+                                                'api_target': api_target
+                                            }
                                             await WS_SUBSCRIPTION_QUEUE.put([clob_ids[0], clob_ids[1]])
                                             active_slug = candidate
                                             break
@@ -941,6 +977,7 @@ async def fetch_and_track_markets():
                     slug = active_slug
                     
                     m_id = MARKET_CACHE[slug]['id']
+                    api_target = MARKET_CACHE[slug]['api_target']
                     timeframe_key = f"{config['symbol']}_{config['timeframe']}"
                     
                     if m_id not in LOCKED_PRICES:
@@ -965,11 +1002,20 @@ async def fetch_and_track_markets():
                         
                     if sec_left >= interval_s - 2: continue
                     
-                    if not m_data['verified'] and sec_since_start >= 30:
-                        if (time.time() - m_data['last_retry']) > 60:
-                            m_data['last_retry'] = time.time()
-                            priority_level = get_verification_priority(config['symbol'], config['timeframe'])
-                            VERIFICATION_QUEUE.put_nowait((priority_level, time.time(), slug, m_id))
+                    # WERYFIKACJA HYBRYDOWA
+                    if not m_data['verified']:
+                        # 1. Próba z API
+                        if api_target is not None:
+                            m_data['price'] = api_target
+                            m_data['verified'] = True
+                            log(f"⚡ [API VERIFIED] Wyłowiono bazę: ${api_target} dla {slug}")
+                        else:
+                            # 2. Jeśli API milczy przez 30 sekund trwania opcji, wyślij czołg (Playwright Fallback)
+                            if sec_since_start >= 30 and (time.time() - m_data['last_retry']) > 120:
+                                m_data['last_retry'] = time.time()
+                                log(f"⚠️ [API PUSTE] Zlecam weryfikację Fallback (Playwright) dla {slug}...")
+                                priority_level = get_verification_priority(config['symbol'], config['timeframe'])
+                                VERIFICATION_QUEUE.put_nowait((priority_level, time.time(), slug, m_id))
                             
                     LOCAL_STATE[f'timing_{m_id}'] = {
                         'sec_left': sec_left, 'sec_since_start': sec_since_start,
@@ -988,8 +1034,7 @@ async def fetch_and_track_markets():
                     
                     MARKET_LOGS_BUFFER.append((
                         f"{config['symbol']}_{config['timeframe']}", m_id, m_data['price'],
-                        adjusted_live_p,
-                        b_up, b_up_vol, s_up, s_up_vol, up_obi,
+                        adjusted_live_p, b_up, b_up_vol, s_up, s_up_vol, up_obi,
                         b_dn, b_dn_vol, s_dn, s_dn_vol, dn_obi,
                         datetime.now().isoformat(), SESSION_ID
                     ))
@@ -1108,7 +1153,7 @@ async def main():
     PORTFOLIO_BALANCE = args.portfolio
     LAST_FLUSH_TS = (int(time.time()) // 300) * 300
     
-    log(f"🚀 INICJALIZACJA SYSTEMU. ID Sesji: {SESSION_ID}")
+    log(f"🚀 INICJALIZACJA SYSTEMU HYBRYDOWEGO (API + FALLBACK). ID Sesji: {SESSION_ID}")
     
     await init_db()
     
@@ -1122,7 +1167,7 @@ async def main():
         binance_ws_listener(),
         polymarket_ws_listener(),
         fetch_and_track_markets(),
-        playwright_verification_worker(),
+        playwright_verification_worker(), # Wątek wrócił, ale w trybie Fallback!
         ui_updater_worker(),
         async_smart_flush_worker()
     )
