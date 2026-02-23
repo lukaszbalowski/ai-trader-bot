@@ -16,11 +16,15 @@ def render_dashboard(configs, state, active_markets, trades, live_data, balance,
     MAG = "\033[35m"
 
     out = [CLR]
-    out.append(f"{BLD}{MAG}=== WATCHER v10.30 (CLEAN-BASE / MICRO-PROTECTION) ==={RST}")
+    out.append(f"{BLD}{MAG}=== WATCHER v10.30 (CLEAN-BASE / MANUAL CONTROLS) ==={RST}")
     out.append(f"{BLD}{CYN}--- MARKETS (LIVE) ---{RST}")
 
     for cfg in configs:
         tk = f"{cfg['symbol']}_{cfg['timeframe']}"
+        ui_key = cfg.get('ui_key', '-')
+        is_paused = tk in state.get('paused_markets', set())
+        paused_str = f"{RED}[PAUSED]{RST} " if is_paused else ""
+        
         live_p = state['binance_live_price'].get(cfg['pair'], 0.0)
         adj_p = live_p + cfg['offset']
         
@@ -79,7 +83,7 @@ def render_dashboard(configs, state, active_markets, trades, live_data, balance,
                 float_color = GRN if market_pnl > 0 else (RED if market_pnl < 0 else YLW)
                 floating_str = f" | Float PnL: {float_color}${market_pnl:+.2f} ({float_pct:+.2f}%){RST}"
 
-            out.append(f"{BLD}{cfg['symbol']} {cfg['timeframe']}{RST} {ver_txt} | {meta_str} | Strike: ${target:,.2f}{session_str}{ids_str}")
+            out.append(f"{BLD}[{ui_key}] {cfg['symbol']} {cfg['timeframe']}{RST} {paused_str}{ver_txt} | {meta_str} | Strike: ${target:,.2f}{session_str}{ids_str}")
             out.append(f"   ├─ Live: ${adj_p:,.2f} | D: {diff_trend} ${abs(diff):.2f}{floating_str}")
 
             if market_trades:
@@ -93,14 +97,13 @@ def render_dashboard(configs, state, active_markets, trades, live_data, balance,
                     pnl_pct = (pnl / t['invested']) * 100 if t['invested'] else 0.0
                     t_color = GRN if pnl > 0 else (RED if pnl < 0 else YLW)
                     
-                    # Wizualne wskazanie, czy pozycja ma nałożony licznik SL dla Lag Snipera
                     sl_warn = f" {RED}[SL: {int(10 - (time.time() - t['sl_countdown']))}s]{RST}" if 'sl_countdown' in t else ""
                     
                     out.append(f"   {prefix} [ID: {t['short_id']:02d}] {t['strategy']} ({t['direction']}) | Invested: ${t['invested']:.2f} | PnL: {t_color}${pnl:+.2f} ({pnl_pct:+.2f}%){RST}{sl_warn}")
             else:
                 out.append(f"   └─ L2 -> UP: {b_up*100:04.1f}c | DOWN: {b_dn*100:04.1f}c")
         else:
-            out.append(f"{BLD}{cfg['symbol']} {cfg['timeframe']}{RST} | Waiting for new market... (Live: ${live_p:,.2f}){session_str}{ids_str}")
+            out.append(f"{BLD}[{ui_key}] {cfg['symbol']} {cfg['timeframe']}{RST} {paused_str}| Waiting for new market... (Live: ${live_p:,.2f}){session_str}{ids_str}")
 
     total_floating_value = 0.0
     total_invested_value = 0.0
@@ -137,6 +140,6 @@ def render_dashboard(configs, state, active_markets, trades, live_data, balance,
     for l in logs[-5:]:
         out.append(l)
 
-    out.append(f"\n{BLD}[Controls] {RST}'q' + Enter -> Emergency sell & exit | 'd' + Enter -> PANIC DUMP (Save to file)")
+    out.append(f"\n{BLD}[Controls]{RST} 'q'->Quit | 'd'->Dump | 'oXX'->Close Option ID (e.g. o05) | 'mX'->Close Market (e.g. ma) | 'msX'->Stop Market | 'mrX'->Restart Market")
     sys.stdout.write("\n".join(out) + "\n")
     sys.stdout.flush()

@@ -9,6 +9,7 @@ import os
 import argparse
 import traceback
 import uuid
+import string
 from datetime import datetime, timedelta
 import pytz
 
@@ -53,6 +54,11 @@ except Exception as e:
     print(f"❌ Critical Error: Unable to load {CONFIG_FILE}. Ensure the file exists.\nDetails: {e}")
     sys.exit(1)
 
+# Dynamically assign UI keys (a, b, c...) to markets for manual controls
+MARKET_KEYS = list(string.ascii_lowercase)
+for idx, cfg in enumerate(TRACKED_CONFIGS):
+    cfg['ui_key'] = MARKET_KEYS[idx] if idx < len(MARKET_KEYS) else str(idx)
+
 # ==========================================
 # LOCAL STATE INITIALIZATION
 # ==========================================
@@ -60,7 +66,8 @@ LOCAL_STATE = {
     'binance_live_price': {cfg['pair']: 0.0 for cfg in TRACKED_CONFIGS},
     'prev_price': {cfg['pair']: 0.0 for cfg in TRACKED_CONFIGS},
     'polymarket_books': {},
-    'session_id': SESSION_ID
+    'session_id': SESSION_ID,
+    'paused_markets': set()
 }
 
 AVAILABLE_TRADE_IDS = list(range(100))
@@ -124,10 +131,12 @@ def perform_tech_dump():
         os.makedirs("data", exist_ok=True)
         filename = f"data/tech_dump_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
         
+        # We convert sets to lists so JSON can serialize them
         dump_data = {
             "timestamp": datetime.now().isoformat(),
             "session_id": SESSION_ID,
             "portfolio_balance": PORTFOLIO_BALANCE,
+            "paused_markets": list(LOCAL_STATE['paused_markets']),
             "locked_prices": LOCKED_PRICES,
             "market_cache": MARKET_CACHE,
             "active_markets": ACTIVE_MARKETS,
@@ -146,6 +155,71 @@ def perform_tech_dump():
         log_error("Tech Dump Error", e)
 
 # ==========================================
+# 0.1 MANUAL CONTROLS HELPERS
+# ==========================================
+def get_market_tf_key_by_ui(ui_key):
+    for cfg in TRACKED_CONFIGS:
+        if cfg['ui_key'] == ui_key:
+            return f"{cfg['symbol']}_{cfg['timeframe']}"
+    return None
+
+def close_manual_trade(short_id):
+    for trade in PAPER_TRADES[:]:
+        if trade['short_id'] == short_id:
+            live_bid = LIVE_MARKET_DATA.get(trade['market_id'], {}).get(f"{trade['direction']}_BID", 0.0)
+            close_trade(trade, live_bid, "MANUAL OVERRIDE CLOSE")
+            log(f"⚡ [MANUAL] Option ID {short_id:02d} explicitly closed.")
+            return
+    log(f"⚠️ [MANUAL] Open Option ID {short_id:02d} not found.")
+
+def close_market_trades(ui_key, reason="MANUAL MARKET CLOSE"):
+    tf_key = get_market_tf_key_by_ui(ui_key)
+    if not tf_key:
+        log(f"⚠️ [MANUAL] Invalid market key '{ui_key}'.")
+        return
+        
+    closed_count = 0
+    for trade in PAPER_TRADES[:]:
+        if f"{trade['symbol']}_{trade['timeframe']}" == tf_key:
+            live_bid = LIVE_MARKET_DATA.get(trade['market_id'], {}).get(f"{trade['direction']}_BID", 0.0)
+            close_trade(trade, live_bid, reason)
+            closed_count += 1
+            
+    if closed_count > 0:
+        log(f"⚡ [MANUAL] Dumped {closed_count} positions for market [{ui_key}] {tf_key}.")
+    else:
+        log(f"ℹ️ [MANUAL] No open positions found for market [{ui_key}] {tf_key}.")
+
+def stop_market(ui_key):
+    tf_key = get_market_tf_key_by_ui(ui_key)
+    if tf_key:
+        LOCAL_STATE['paused_markets'].add(tf_key)
+        close_market_trades(ui_key, reason="MARKET STOP (EMERGENCY LIQUIDATION)")
+        log(f"🛑 [MANUAL] Market [{ui_key}] {tf_key} operations PAUSED.")
+
+def restart_market(ui_key):
+    tf_key = get_market_tf_key_by_ui(ui_key)
+    if tf_key and tf_key in LOCAL_STATE['paused_markets']:
+        LOCAL_STATE['paused_markets'].remove(tf_key)
+        log(f"▶️ [MANUAL] Market [{ui_key}] {tf_key} RESUMED.")
+
+def handle_stdin():
+    cmd = sys.stdin.readline().strip().lower().replace(" ", "")
+    
+    if cmd == 'q': 
+        asyncio.create_task(liquidate_all_and_quit())
+    elif cmd == 'd':
+        perform_tech_dump()
+    elif cmd.startswith('o') and cmd[1:].isdigit():
+        close_manual_trade(int(cmd[1:]))
+    elif cmd.startswith('ms') and len(cmd) == 3:
+        stop_market(cmd[2])
+    elif cmd.startswith('mr') and len(cmd) == 3:
+        restart_market(cmd[2])
+    elif cmd.startswith('m') and len(cmd) == 2:
+        close_market_trades(cmd[1])
+
+# ==========================================
 # 1. DATABASE (ASYNC)
 # ==========================================
 async def init_db():
@@ -158,16 +232,15 @@ async def init_db():
             fetched_at TEXT, session_id TEXT)''')
         try:
             await db.execute("ALTER TABLE market_logs_v11 ADD COLUMN session_id TEXT")
-        except Exception:
-            pass
+        except Exception: pass
+        
         await db.execute('''CREATE TABLE IF NOT EXISTS trade_logs_v10 (
             trade_id TEXT PRIMARY KEY, market_id TEXT, timeframe TEXT, strategy TEXT, direction TEXT,
             invested REAL, entry_price REAL, entry_time TEXT, exit_price REAL, exit_time TEXT, pnl REAL,
             reason TEXT, session_id TEXT)''')
         try:
             await db.execute("ALTER TABLE trade_logs_v10 ADD COLUMN session_id TEXT")
-        except Exception:
-            pass
+        except Exception: pass
         await db.commit()
 
 async def flush_to_db():
@@ -232,13 +305,6 @@ async def liquidate_all_and_quit():
         await flush_to_db()
     render_dashboard(TRACKED_CONFIGS, LOCAL_STATE, ACTIVE_MARKETS, PAPER_TRADES, LIVE_MARKET_DATA, PORTFOLIO_BALANCE, INITIAL_BALANCE, RECENT_LOGS, ACTIVE_ERRORS, TRADE_HISTORY)
     os._exit(1)
-
-def handle_stdin():
-    cmd = sys.stdin.readline().strip().lower()
-    if cmd == 'q': 
-        asyncio.create_task(liquidate_all_and_quit())
-    elif cmd == 'd':
-        perform_tech_dump()
 
 # ==========================================
 # 3. TRADING LOGIC
@@ -483,7 +549,6 @@ async def fetch_and_track_markets():
                     m_id = MARKET_CACHE[slug]['id']
                     
                     if m_id not in LOCKED_PRICES:
-                        # Weryfikacja czy bot złapał rynek od samego początku (Czysta Baza)
                         is_clean_start = is_pre_warming or (sec_since_start <= 15)
                         LOCKED_PRICES[m_id] = {
                             'price': live_p, 
@@ -574,6 +639,8 @@ async def evaluate_strategies(trigger_source, pair_filter=None):
             sec_left = timing['sec_left']
             m_data = timing['m_data']
             
+            timeframe_key = f"{symbol}_{timeframe}"
+            
             is_base_fetched = m_data.get('base_fetched', False)
             is_clean = m_data.get('is_clean', False)
             
@@ -603,18 +670,15 @@ async def evaluate_strategies(trigger_source, pair_filter=None):
                 if current_bid <= 0.0: 
                     continue 
                 
-                # RULE 1: Global Take Profit (PnL >= 200%)
                 if current_bid >= entry_p * TAKE_PROFIT_MULTIPLIER and trade['strategy'] != "OTM Bargain":
                     close_trade(trade, current_bid, "Global Take Profit (+200%)")
                     continue
                 
-                # RULE 2: Global Profit Securing
                 if 0 < sec_left <= PROFIT_SECURE_SEC:
                     if current_bid > entry_p:
                         close_trade(trade, current_bid, f"Securing profits before expiry ({sec_left:.1f}s left)")
                     continue 
 
-                # RULE 3: Lag Sniper Specific Stop-Loss & Recovery Countdown
                 if trade['strategy'] == "Lag Sniper":
                     if current_bid >= entry_p:
                         if 'sl_countdown' in trade:
@@ -631,7 +695,7 @@ async def evaluate_strategies(trigger_source, pair_filter=None):
             # =====================================================================
             # SIGNAL GENERATION
             # =====================================================================        
-            if is_base_fetched:
+            if is_base_fetched and timeframe_key not in LOCAL_STATE['paused_markets']:
                 
                 # 1. Mid-Game Arb (Wymaga czystej bazy is_clean)
                 m_cfg = config.get('mid_arb', {})
@@ -673,7 +737,7 @@ async def evaluate_strategies(trigger_source, pair_filter=None):
                 dn_change = b_dn - m_data['prev_dn']
                 
                 sniper_cfg = config.get('lag_sniper', {})
-                if sniper_cfg:
+                if sniper_cfg and timeframe_key not in LOCAL_STATE['paused_markets']:
                     end_time = sniper_cfg.get('end_time', sniper_cfg.get('czas_koncowki', 0))
                     end_threshold = sniper_cfg.get('end_threshold', sniper_cfg.get('prog_koncowka', 0))
                     base_threshold = sniper_cfg.get('base_threshold', sniper_cfg.get('prog_bazowy', 0))
