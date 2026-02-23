@@ -21,8 +21,13 @@ case "$COMMAND" in
     ;;
     
   backtest)
-    echo "🧪 Starting full Backtester (Level 2 Analysis + Post Mortem)..."
+    echo "🧪 Starting Backtester (Level 2 Analysis + Post Mortem) for the LATEST session..."
     docker run --rm -it -v "$(pwd)/data:/app/data" ai-trader python backtester.py
+    ;;
+    
+  backtest-all)
+    echo "🌍 Starting Backtester on FULL historical database..."
+    docker run --rm -it -v "$(pwd)/data:/app/data" ai-trader python backtester.py --all-history
     ;;
     
   fast-track)
@@ -37,7 +42,8 @@ case "$COMMAND" in
     echo "Available commands:"
     echo "  build            - Builds the container image (run after every code change)"
     echo "  trader [amount]  - Starts the HFT Bot (e.g., ./watcher.sh trader 500)"
-    echo "  backtest         - Runs grid simulation and updates strategies from Level 2"
+    echo "  backtest         - Runs grid simulation and updates strategies from the latest session"
+    echo "  backtest-all     - Runs grid simulation on the ENTIRE historical database"
     echo "  fast-track       - Dumps best historical settings to tracked_configs.json"
     echo "============================================"
     ;;

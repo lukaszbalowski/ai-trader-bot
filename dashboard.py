@@ -16,7 +16,7 @@ def render_dashboard(configs, state, active_markets, trades, live_data, balance,
     MAG = "\033[35m"
 
     out = [CLR]
-    out.append(f"{BLD}{MAG}=== WATCHER v10.29 (MULTI-TIMEFRAME | PRE-WARMING) ==={RST}")
+    out.append(f"{BLD}{MAG}=== WATCHER v10.30 (CLEAN-BASE / MICRO-PROTECTION) ==={RST}")
     out.append(f"{BLD}{CYN}--- MARKETS (LIVE) ---{RST}")
 
     for cfg in configs:
@@ -46,12 +46,16 @@ def render_dashboard(configs, state, active_markets, trades, live_data, balance,
             is_pre_warming = timing.get('is_pre_warming', False)
             
             is_base_fetched = timing.get('m_data', {}).get('base_fetched', False)
+            is_clean = timing.get('m_data', {}).get('is_clean', False)
             
             if is_pre_warming:
                 ver_txt = f"{MAG}[🔥 PRE-WARM]{RST} {GRN}[BASE OK]{RST}" if is_base_fetched else f"{MAG}[🔥 PRE-WARM]{RST} {YLW}[FETCHING...]{RST}"
                 meta_str = f"Starts in: {abs(sec_since_start):04.1f}s"
             else:
-                ver_txt = f"{GRN}[BASE OK]{RST}" if is_base_fetched else f"{YLW}[NO BASE]{RST}"
+                if is_base_fetched:
+                    ver_txt = f"{GRN}[BASE OK]{RST}" if is_clean else f"{YLW}[MID-JOIN: OTM ONLY]{RST}"
+                else:
+                    ver_txt = f"{YLW}[NO BASE]{RST}"
                 meta_str = f"End: {sec_left:05.1f}s"
             
             m_data = live_data.get(m_id, {})
@@ -88,7 +92,11 @@ def render_dashboard(configs, state, active_markets, trades, live_data, balance,
                     pnl = c_val - t['invested']
                     pnl_pct = (pnl / t['invested']) * 100 if t['invested'] else 0.0
                     t_color = GRN if pnl > 0 else (RED if pnl < 0 else YLW)
-                    out.append(f"   {prefix} [ID: {t['short_id']:02d}] {t['strategy']} ({t['direction']}) | Invested: ${t['invested']:.2f} | PnL: {t_color}${pnl:+.2f} ({pnl_pct:+.2f}%){RST}")
+                    
+                    # Wizualne wskazanie, czy pozycja ma nałożony licznik SL dla Lag Snipera
+                    sl_warn = f" {RED}[SL: {int(10 - (time.time() - t['sl_countdown']))}s]{RST}" if 'sl_countdown' in t else ""
+                    
+                    out.append(f"   {prefix} [ID: {t['short_id']:02d}] {t['strategy']} ({t['direction']}) | Invested: ${t['invested']:.2f} | PnL: {t_color}${pnl:+.2f} ({pnl_pct:+.2f}%){RST}{sl_warn}")
             else:
                 out.append(f"   └─ L2 -> UP: {b_up*100:04.1f}c | DOWN: {b_dn*100:04.1f}c")
         else:

@@ -19,12 +19,18 @@ from dashboard import render_dashboard
 # CONSTANTS & MULTI-COIN CONFIGURATION
 # ==========================================
 CHECK_INTERVAL = 1
-GLOBAL_SEC_RULE = 4.0
 
+# --- RISK & MONEY MANAGEMENT ---
 DRAWDOWN_LIMIT = 0.30          
 MAX_MARKET_EXPOSURE = 0.15     
 BURST_LIMIT_TRADES = 5         
 BURST_LIMIT_SEC = 10           
+
+# --- NEW MICRO-PROTECTION CONSTANTS ---
+PROFIT_SECURE_SEC = 3.0        # Secure profit if <= 3 seconds left
+TAKE_PROFIT_MULTIPLIER = 3.0   # 3.0x entry price = 200% PnL Profit
+LAG_SNIPER_SL_DROP = 0.90      # -10% drop activates countdown
+LAG_SNIPER_TIMEOUT = 10.0      # 10 seconds to recover or exit
 
 SANITY_THRESHOLDS = {
     'BTC': 0.04, 'ETH': 0.05, 'SOL': 0.08, 'XRP': 0.15
@@ -477,10 +483,13 @@ async def fetch_and_track_markets():
                     m_id = MARKET_CACHE[slug]['id']
                     
                     if m_id not in LOCKED_PRICES:
+                        # Weryfikacja czy bot złapał rynek od samego początku (Czysta Baza)
+                        is_clean_start = is_pre_warming or (sec_since_start <= 15)
                         LOCKED_PRICES[m_id] = {
                             'price': live_p, 
                             'base_fetched': False, 
-                            'last_retry': 0, 'prev_up': 0, 'prev_dn': 0
+                            'last_retry': 0, 'prev_up': 0, 'prev_dn': 0,
+                            'is_clean': is_clean_start
                         }
                     
                     m_data = LOCKED_PRICES[m_id]
@@ -488,7 +497,10 @@ async def fetch_and_track_markets():
                     if not m_data['base_fetched'] and not is_pre_warming:
                         m_data['price'] = live_p
                         m_data['base_fetched'] = True
-                        log(f"⚡ [LOCAL ORACLE] Base definitively frozen at start: ${m_data['price']} for {slug}")
+                        if m_data.get('is_clean', False):
+                            log(f"⚡ [LOCAL ORACLE] Base definitively frozen at start: ${m_data['price']} for {slug}")
+                        else:
+                            log(f"⚠️ [LOCAL ORACLE] Mid-interval join. Base set to ${m_data['price']}. Trading paused (except OTM) for {slug}")
 
                     timeframe_key = f"{config['symbol']}_{config['timeframe']}"
                     
@@ -539,7 +551,7 @@ async def fetch_and_track_markets():
             await asyncio.sleep(CHECK_INTERVAL)
 
 # ==========================================
-# 6. STRATEGY ENGINE
+# 6. STRATEGY ENGINE & TRADE MANAGEMENT
 # ==========================================
 async def evaluate_strategies(trigger_source, pair_filter=None):
     try:
@@ -563,6 +575,8 @@ async def evaluate_strategies(trigger_source, pair_filter=None):
             m_data = timing['m_data']
             
             is_base_fetched = m_data.get('base_fetched', False)
+            is_clean = m_data.get('is_clean', False)
+            
             live_p = LOCAL_STATE['binance_live_price'].get(pair, 0.0)
             prev_p = LOCAL_STATE['prev_price'].get(pair, 0.0)
             
@@ -578,21 +592,51 @@ async def evaluate_strategies(trigger_source, pair_filter=None):
             s_up, _, b_up, _, _ = extract_orderbook_metrics(cache['up_id'])
             s_dn, _, b_dn, _, _ = extract_orderbook_metrics(cache['dn_id'])
             
+            # =====================================================================
+            # MICRO-PROTECTION ENGINE: Stop Losses, Take Profits & Time Exits
+            # =====================================================================
             for trade in PAPER_TRADES[:]:
                 if trade['market_id'] != m_id: continue
                 current_bid = s_up if trade['direction'] == 'UP' else s_dn
                 entry_p = trade['entry_price']
-                cashout_sec = 2.0 if trade['strategy'] == "1-Min Mom" else GLOBAL_SEC_RULE
                 
-                if 0 < sec_left <= cashout_sec:
-                    if current_bid > entry_p:
-                        close_trade(trade, current_bid, f"Securing profits before expiry ({cashout_sec}s)")
+                if current_bid <= 0.0: 
+                    continue 
+                
+                # RULE 1: Global Take Profit (PnL >= 200%)
+                if current_bid >= entry_p * TAKE_PROFIT_MULTIPLIER and trade['strategy'] != "OTM Bargain":
+                    close_trade(trade, current_bid, "Global Take Profit (+200%)")
                     continue
+                
+                # RULE 2: Global Profit Securing
+                if 0 < sec_left <= PROFIT_SECURE_SEC:
+                    if current_bid > entry_p:
+                        close_trade(trade, current_bid, f"Securing profits before expiry ({sec_left:.1f}s left)")
+                    continue 
+
+                # RULE 3: Lag Sniper Specific Stop-Loss & Recovery Countdown
+                if trade['strategy'] == "Lag Sniper":
+                    if current_bid >= entry_p:
+                        if 'sl_countdown' in trade:
+                            del trade['sl_countdown']
+                            log(f"🔄 [ID: {trade['short_id']:02d}] Price recovered to entry. SL Countdown canceled.")
+                    elif current_bid <= entry_p * LAG_SNIPER_SL_DROP and 'sl_countdown' not in trade:
+                        trade['sl_countdown'] = time.time()
+                        log(f"⚠️ [ID: {trade['short_id']:02d}] Lag Sniper -10% drop. 10s countdown started.")
                     
+                    if 'sl_countdown' in trade and (time.time() - trade['sl_countdown'] >= LAG_SNIPER_TIMEOUT):
+                        close_trade(trade, current_bid, f"Lag Sniper Timeout SL ({LAG_SNIPER_TIMEOUT}s)")
+                        continue
+
+            # =====================================================================
+            # SIGNAL GENERATION
+            # =====================================================================        
             if is_base_fetched:
+                
+                # 1. Mid-Game Arb (Wymaga czystej bazy is_clean)
                 m_cfg = config.get('mid_arb', {})
                 mid_arb_flag = f"mid_arb_{m_id}"
-                if m_cfg and m_cfg.get('win_end', 0) < sec_left < m_cfg.get('win_start', 0) and mid_arb_flag not in EXECUTED_STRAT[m_id]:
+                if m_cfg and is_clean and m_cfg.get('win_end', 0) < sec_left < m_cfg.get('win_start', 0) and mid_arb_flag not in EXECUTED_STRAT[m_id]:
                     if adj_delta > m_cfg.get('delta', 0) and 0 < b_up <= m_cfg.get('max_p', 0):
                         execute_trade(m_id, timeframe, "Mid-Game Arb", "UP", 2.0, b_up, symbol, m_cfg.get('wr', 50.0), m_cfg.get('id', ''))
                         EXECUTED_STRAT[m_id].append(mid_arb_flag)
@@ -600,6 +644,7 @@ async def evaluate_strategies(trigger_source, pair_filter=None):
                         execute_trade(m_id, timeframe, "Mid-Game Arb", "DOWN", 2.0, b_dn, symbol, m_cfg.get('wr', 50.0), m_cfg.get('id', ''))
                         EXECUTED_STRAT[m_id].append(mid_arb_flag)
                         
+                # 2. OTM Bargain (NIE wymaga czystej bazy - działa zawsze)
                 otm_cfg = config.get('otm', {})
                 otm_flag = f"otm_{m_id}"
                 if otm_cfg and otm_cfg.get('wr', 0.0) > 0.0 and otm_cfg.get('win_end', 0) <= sec_left <= otm_cfg.get('win_start', 0) and otm_flag not in EXECUTED_STRAT[m_id]:
@@ -611,8 +656,9 @@ async def evaluate_strategies(trigger_source, pair_filter=None):
                             execute_trade(m_id, timeframe, "OTM Bargain", "DOWN", 1.0, b_dn, symbol, otm_cfg.get('wr', 50.0), otm_cfg.get('id', ''))
                             EXECUTED_STRAT[m_id].append(otm_flag)
                             
+                # 3. Momentum (Wymaga czystej bazy is_clean)
                 mom_cfg = config.get('momentum', {})
-                if mom_cfg and mom_cfg.get('win_end', 0) <= sec_left <= mom_cfg.get('win_start', 0) and 'momentum' not in EXECUTED_STRAT[m_id]:
+                if mom_cfg and is_clean and mom_cfg.get('win_end', 0) <= sec_left <= mom_cfg.get('win_start', 0) and 'momentum' not in EXECUTED_STRAT[m_id]:
                     if adj_delta >= mom_cfg.get('delta', 0) and 0 < b_up <= mom_cfg.get('max_p', 0):
                         execute_trade(m_id, timeframe, "1-Min Mom", "UP", 1.0, b_up, symbol, mom_cfg.get('wr', 50.0), mom_cfg.get('id', ''))
                         EXECUTED_STRAT[m_id].append('momentum')
@@ -620,17 +666,14 @@ async def evaluate_strategies(trigger_source, pair_filter=None):
                         execute_trade(m_id, timeframe, "1-Min Mom", "DOWN", 1.0, b_dn, symbol, mom_cfg.get('wr', 50.0), mom_cfg.get('id', ''))
                         EXECUTED_STRAT[m_id].append('momentum')
                         
-            if trigger_source == "BINANCE_TICK" and is_base_fetched:
+            # 4. Lag Sniper (Wymaga czystej bazy is_clean)
+            if trigger_source == "BINANCE_TICK" and is_base_fetched and is_clean:
                 asset_jump = live_p - prev_p 
                 up_change = b_up - m_data['prev_up']
                 dn_change = b_dn - m_data['prev_dn']
                 
                 sniper_cfg = config.get('lag_sniper', {})
                 if sniper_cfg:
-                    # ======================================================================
-                    # BACKWARD COMPATIBILITY: Obsługa polskiego i angielskiego nazewnictwa z bazy 
-                    # Zabezpiecza przed błędem KeyError: 'end_time' wywołanym starymi rekordami.
-                    # ======================================================================
                     end_time = sniper_cfg.get('end_time', sniper_cfg.get('czas_koncowki', 0))
                     end_threshold = sniper_cfg.get('end_threshold', sniper_cfg.get('prog_koncowka', 0))
                     base_threshold = sniper_cfg.get('base_threshold', sniper_cfg.get('prog_bazowy', 0))

@@ -124,7 +124,7 @@ def get_latest_session_id(db_path="data/polymarket.db"):
     except Exception:
         return None
 
-def run_post_mortem_analysis(db_path="data/polymarket.db"):
+def run_post_mortem_analysis(db_path="data/polymarket.db", all_history=False):
     print("\n" + "=" * 80)
     print(" 🕵️ POST-MORTEM ANALYSIS (HISTORICAL TRADING RESULTS) ")
     print("=" * 80)
@@ -132,7 +132,7 @@ def run_post_mortem_analysis(db_path="data/polymarket.db"):
         print("Database file not found. Skipping Post-Mortem analysis.")
         return
     try:
-        latest_session = get_latest_session_id(db_path)
+        latest_session = get_latest_session_id(db_path) if not all_history else None
         conn = sqlite3.connect(db_path)
         cur = conn.cursor()
         cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='trade_logs_v10'")
@@ -140,6 +140,7 @@ def run_post_mortem_analysis(db_path="data/polymarket.db"):
             print("Table trade_logs_v10 is empty or does not exist. Skipping analysis.")
             conn.close()
             return
+            
         if latest_session:
             print(f"🔍 Analysis isolated strictly for the latest session: {latest_session}")
             try:
@@ -147,11 +148,15 @@ def run_post_mortem_analysis(db_path="data/polymarket.db"):
             except Exception:
                 df_trades = pd.read_sql_query("SELECT * FROM trade_logs_v10", conn)
         else:
+            if all_history:
+                print(f"🌍 Analysis utilizing FULL historical database.")
             df_trades = pd.read_sql_query("SELECT * FROM trade_logs_v10", conn)
+            
         conn.close()
         if df_trades.empty:
-            print("No trade history found in database for this session.")
+            print("No trade history found in database for this run.")
             return
+            
         total_pnl = df_trades['pnl'].sum()
         total_trades = len(df_trades)
         win_rate = (len(df_trades[df_trades['pnl'] > 0]) / total_trades) * 100 if total_trades > 0 else 0.0
@@ -173,10 +178,11 @@ def run_post_mortem_analysis(db_path="data/polymarket.db"):
 # ==========================================
 # 1. LEVEL 2 DATA PREPARATION
 # ==========================================
-def load_and_prepare_data(db_path="data/polymarket.db"):
+def load_and_prepare_data(db_path="data/polymarket.db", all_history=False):
     if not os.path.exists(db_path):
         return pd.DataFrame()
-    latest_session = get_latest_session_id(db_path)
+        
+    latest_session = get_latest_session_id(db_path) if not all_history else None
     conn = sqlite3.connect(db_path)
     try:
         if latest_session:
@@ -184,11 +190,13 @@ def load_and_prepare_data(db_path="data/polymarket.db"):
             query = f"SELECT * FROM market_logs_v11 WHERE session_id='{latest_session}' AND (buy_up > 0 OR buy_down > 0) ORDER BY fetched_at ASC"
             df = pd.read_sql_query(query, conn)
         else:
+            print(f"🌍 Fetching Level 2 ticks for FULL historical data...")
             df = pd.read_sql_query("SELECT * FROM market_logs_v11 WHERE buy_up > 0 OR buy_down > 0 ORDER BY fetched_at ASC", conn)
     except Exception:
         df = pd.DataFrame()
     finally:
         conn.close()
+        
     if df.empty: return df
     df['fetched_at'] = pd.to_datetime(df['fetched_at'], format='ISO8601')
     max_times = df.groupby('market_id')['fetched_at'].transform('max')
@@ -334,9 +342,19 @@ def test_lag_sniper(df_markets, symbol, interval):
     fast_markets = prepare_fast_markets(df_markets)
     num_cores = os.cpu_count() or 4
     best_results = execute_with_progress(worker_lag_sniper, combinations, fast_markets, num_cores)
+    
     if not best_results: return None
-    best_results.sort(key=lambda x: x['pnl'], reverse=True)
-    best_result = best_results[0]
+    
+    # ---------------------------------------------------------
+    # Wymóg Istotności Statystycznej (Min. 10 transakcji)
+    # ---------------------------------------------------------
+    valid_results = [r for r in best_results if r['t'] >= 10]
+    if not valid_results:
+        print("   ⚠️ Warning: No configuration reached the minimum of 10 trades. Falling back to the best available.")
+        valid_results = best_results
+
+    valid_results.sort(key=lambda x: x['pnl'], reverse=True)
+    best_result = valid_results[0]
     best_result['p']['id'] = strat_id
     display_results_and_compare(best_result, symbol, interval, "lag_sniper")
     return best_result
@@ -393,9 +411,19 @@ def test_1min_momentum(df_markets, symbol, interval):
     num_cores = os.cpu_count() or 4
     random.shuffle(combinations)
     best_results = execute_with_progress(worker_1min_momentum, combinations, fast_markets, num_cores)
+    
     if not best_results: return None
-    best_results.sort(key=lambda x: x['pnl'], reverse=True)
-    best_result = best_results[0]
+    
+    # ---------------------------------------------------------
+    # Wymóg Istotności Statystycznej (Min. 10 transakcji)
+    # ---------------------------------------------------------
+    valid_results = [r for r in best_results if r['t'] >= 10]
+    if not valid_results:
+        print("   ⚠️ Warning: No configuration reached the minimum of 10 trades. Falling back to the best available.")
+        valid_results = best_results
+
+    valid_results.sort(key=lambda x: x['pnl'], reverse=True)
+    best_result = valid_results[0]
     best_result['p']['id'] = strat_id
     display_results_and_compare(best_result, symbol, interval, "momentum")
     return best_result
@@ -447,9 +475,19 @@ def test_mid_game_arb(df_markets, symbol, interval):
     fast_markets = prepare_fast_markets(df_markets)
     num_cores = os.cpu_count() or 4
     best_results = execute_with_progress(worker_mid_arb, combinations, fast_markets, num_cores)
+    
     if not best_results: return None
-    best_results.sort(key=lambda x: x['pnl'], reverse=True)
-    best_result = best_results[0]
+    
+    # ---------------------------------------------------------
+    # Wymóg Istotności Statystycznej (Min. 10 transakcji)
+    # ---------------------------------------------------------
+    valid_results = [r for r in best_results if r['t'] >= 10]
+    if not valid_results:
+        print("   ⚠️ Warning: No configuration reached the minimum of 10 trades. Falling back to the best available.")
+        valid_results = best_results
+
+    valid_results.sort(key=lambda x: x['pnl'], reverse=True)
+    best_result = valid_results[0]
     best_result['p']['id'] = strat_id
     display_results_and_compare(best_result, symbol, interval, "mid_arb")
     return best_result
@@ -500,9 +538,19 @@ def test_otm_bargain(df_markets, symbol, interval):
     fast_markets = prepare_fast_markets(df_markets)
     num_cores = os.cpu_count() or 4
     best_results = execute_with_progress(worker_otm, combinations, fast_markets, num_cores)
+    
     if not best_results: return None
-    best_results.sort(key=lambda x: x['pnl'], reverse=True)
-    best_result = best_results[0]
+    
+    # ---------------------------------------------------------
+    # Wymóg Istotności Statystycznej (Min. 10 transakcji)
+    # ---------------------------------------------------------
+    valid_results = [r for r in best_results if r['t'] >= 10]
+    if not valid_results:
+        print("   ⚠️ Warning: No configuration reached the minimum of 10 trades. Falling back to the best available.")
+        valid_results = best_results
+
+    valid_results.sort(key=lambda x: x['pnl'], reverse=True)
+    best_result = valid_results[0]
     best_result['p']['id'] = strat_id
     display_results_and_compare(best_result, symbol, interval, "otm")
     return best_result
@@ -574,6 +622,7 @@ if __name__ == "__main__":
     
     parser = argparse.ArgumentParser(description="Watcher v10.29 Alpha Vault Backtester")
     parser.add_argument('--fast-track', action='store_true', help="Skips testing and builds tracked_configs.json from historical vault bests")
+    parser.add_argument('--all-history', action='store_true', help="Force backtester to use all historical data instead of just the latest session")
     args = parser.parse_args()
 
     init_history_db()
@@ -582,14 +631,14 @@ if __name__ == "__main__":
         optimizations = compile_best_from_vault()
         generate_tracked_configs_output(optimizations)
     else:
-        run_post_mortem_analysis()
-        print("\n⏳ Loading SQLite (v11) database and formatting Numpy data for simulation...")
+        run_post_mortem_analysis(all_history=args.all_history)
+        print("\n⏳ Loading SQLite database and formatting Numpy data for simulation...")
         time_s = time.time()
-        historical_data = load_and_prepare_data()
+        historical_data = load_and_prepare_data(all_history=args.all_history)
         print(f"✅ Data loaded and vectorized in {time.time()-time_s:.2f} seconds.")
         
         if historical_data.empty:
-            print("No Level 2 market logs from the last session to perform new grid optimization.")
+            print("No Level 2 market logs found in the database to perform new grid optimization.")
         else:
             unique_markets = historical_data['timeframe'].unique()
             optimizations = {}
