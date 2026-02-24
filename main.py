@@ -27,11 +27,11 @@ MAX_MARKET_EXPOSURE = 0.15
 BURST_LIMIT_TRADES = 5         
 BURST_LIMIT_SEC = 10           
 
-# --- NEW MICRO-PROTECTION CONSTANTS ---
-PROFIT_SECURE_SEC = 3.0        # Secure profit if <= 3 seconds left
-TAKE_PROFIT_MULTIPLIER = 3.0   # 3.0x entry price = 200% PnL Profit
-LAG_SNIPER_SL_DROP = 0.90      # -10% drop activates countdown
-LAG_SNIPER_TIMEOUT = 10.0      # 10 seconds to recover or exit
+# --- MICRO-PROTECTION CONSTANTS ---
+PROFIT_SECURE_SEC = 3.0        
+TAKE_PROFIT_MULTIPLIER = 3.0   
+LAG_SNIPER_SL_DROP = 0.90      
+LAG_SNIPER_TIMEOUT = 10.0      
 
 SANITY_THRESHOLDS = {
     'BTC': 0.04, 'ETH': 0.05, 'SOL': 0.08, 'XRP': 0.15
@@ -62,12 +62,16 @@ for idx, cfg in enumerate(TRACKED_CONFIGS):
 # ==========================================
 # LOCAL STATE INITIALIZATION
 # ==========================================
+# Populate paused_markets with all tracked markets by default
+initial_paused_markets = set([f"{cfg['symbol']}_{cfg['timeframe']}" for cfg in TRACKED_CONFIGS])
+
 LOCAL_STATE = {
     'binance_live_price': {cfg['pair']: 0.0 for cfg in TRACKED_CONFIGS},
     'prev_price': {cfg['pair']: 0.0 for cfg in TRACKED_CONFIGS},
     'polymarket_books': {},
     'session_id': SESSION_ID,
-    'paused_markets': set()
+    'paused_markets': initial_paused_markets,
+    'market_status': {f"{cfg['symbol']}_{cfg['timeframe']}": "[paused]" for cfg in TRACKED_CONFIGS}
 }
 
 AVAILABLE_TRADE_IDS = list(range(100))
@@ -131,12 +135,12 @@ def perform_tech_dump():
         os.makedirs("data", exist_ok=True)
         filename = f"data/tech_dump_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
         
-        # We convert sets to lists so JSON can serialize them
         dump_data = {
             "timestamp": datetime.now().isoformat(),
             "session_id": SESSION_ID,
             "portfolio_balance": PORTFOLIO_BALANCE,
             "paused_markets": list(LOCAL_STATE['paused_markets']),
+            "market_status": LOCAL_STATE['market_status'],
             "locked_prices": LOCKED_PRICES,
             "market_cache": MARKET_CACHE,
             "active_markets": ACTIVE_MARKETS,
@@ -194,14 +198,16 @@ def stop_market(ui_key):
     tf_key = get_market_tf_key_by_ui(ui_key)
     if tf_key:
         LOCAL_STATE['paused_markets'].add(tf_key)
+        LOCAL_STATE['market_status'][tf_key] = "[paused]"
         close_market_trades(ui_key, reason="MARKET STOP (EMERGENCY LIQUIDATION)")
-        log(f"🛑 [MANUAL] Market [{ui_key}] {tf_key} operations PAUSED.")
+        log(f"🛑 [MANUAL] Market [{ui_key}] {tf_key} operations PAUSED. Status set to [paused].")
 
 def restart_market(ui_key):
     tf_key = get_market_tf_key_by_ui(ui_key)
     if tf_key and tf_key in LOCAL_STATE['paused_markets']:
         LOCAL_STATE['paused_markets'].remove(tf_key)
-        log(f"▶️ [MANUAL] Market [{ui_key}] {tf_key} RESUMED.")
+        LOCAL_STATE['market_status'][tf_key] = "[running]"
+        log(f"▶️ [MANUAL] Market [{ui_key}] {tf_key} RESUMED. Status set to [running].")
 
 def handle_stdin():
     cmd = sys.stdin.readline().strip().lower().replace(" ", "")
@@ -548,6 +554,8 @@ async def fetch_and_track_markets():
                     slug = active_slug
                     m_id = MARKET_CACHE[slug]['id']
                     
+                    timeframe_key = f"{config['symbol']}_{config['timeframe']}"
+                    
                     if m_id not in LOCKED_PRICES:
                         is_clean_start = is_pre_warming or (sec_since_start <= 15)
                         LOCKED_PRICES[m_id] = {
@@ -556,6 +564,13 @@ async def fetch_and_track_markets():
                             'last_retry': 0, 'prev_up': 0, 'prev_dn': 0,
                             'is_clean': is_clean_start
                         }
+                        
+                        # Set appropriate pause status
+                        if timeframe_key in LOCAL_STATE['paused_markets']:
+                            if is_clean_start:
+                                LOCAL_STATE['market_status'][timeframe_key] = "[ready to start]"
+                            else:
+                                LOCAL_STATE['market_status'][timeframe_key] = "[paused] [mid join, OTM only]"
                     
                     m_data = LOCKED_PRICES[m_id]
 
@@ -566,8 +581,6 @@ async def fetch_and_track_markets():
                             log(f"⚡ [LOCAL ORACLE] Base definitively frozen at start: ${m_data['price']} for {slug}")
                         else:
                             log(f"⚠️ [LOCAL ORACLE] Mid-interval join. Base set to ${m_data['price']}. Trading paused (except OTM) for {slug}")
-
-                    timeframe_key = f"{config['symbol']}_{config['timeframe']}"
                     
                     if timeframe_key not in ACTIVE_MARKETS:
                         ACTIVE_MARKETS[timeframe_key] = {'m_id': m_id, 'target': m_data['price']}

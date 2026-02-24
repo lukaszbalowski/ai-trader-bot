@@ -34,6 +34,14 @@ case "$COMMAND" in
     echo "⚡ Fast track best configurations from Alpha Vault to tracked_configs.json..."
     docker run --rm -it -v "$(pwd)/data:/app/data" ai-trader python backtester.py --fast-track
     ;;
+
+    test-executor)
+    echo "🚀 Uruchamiam test egzekucji (Buy/Sell Cycle)..."
+    docker run --rm -it \
+        -v "$(pwd)/data:/app/data" \
+        --env-file .env \
+        ai-trader python executor_test.py
+    ;;
     
   *)
     echo "=== 🤖 WATCHER v10.29 CONTROL CONSOLE ==="

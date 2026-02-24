@@ -6,3 +6,4 @@ pandas
 numpy
 web3
 py-clob-client
+python-dotenv
