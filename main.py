@@ -12,9 +12,25 @@ import uuid
 import string
 from datetime import datetime, timedelta
 import pytz
+from dotenv import load_dotenv
 
 from py_clob_client.client import ClobClient
+from py_clob_client.clob_types import MarketOrderArgs, OrderType, BalanceAllowanceParams, AssetType
 from dashboard import render_dashboard
+
+# ==========================================
+# ENV & CREDENTIALS
+# ==========================================
+load_dotenv()
+
+HOST = "https://clob.polymarket.com"
+PRIVATE_KEY = os.getenv("PRIVATE_KEY")
+PROXY_WALLET_ADDRESS = os.getenv("PROXY_WALLET_ADDRESS")
+CHAIN_ID = int(os.getenv("CHAIN_ID", "137"))
+SIGNATURE_TYPE = int(os.getenv("SIGNATURE_TYPE", "1"))
+
+TRADING_MODE = 'paper' # Set dynamically via CLI
+ASYNC_CLOB_CLIENT = None
 
 # ==========================================
 # CONSTANTS & MULTI-COIN CONFIGURATION
@@ -54,7 +70,6 @@ except Exception as e:
     print(f"❌ Critical Error: Unable to load {CONFIG_FILE}. Ensure the file exists.\nDetails: {e}")
     sys.exit(1)
 
-# Dynamically assign UI keys (a, b, c...) to markets for manual controls
 MARKET_KEYS = list(string.ascii_lowercase)
 for idx, cfg in enumerate(TRACKED_CONFIGS):
     cfg['ui_key'] = MARKET_KEYS[idx] if idx < len(MARKET_KEYS) else str(idx)
@@ -74,7 +89,6 @@ LOCAL_STATE = {
 }
 
 AVAILABLE_TRADE_IDS = list(range(100))
-
 LOCKED_PRICES = {}
 MARKET_CACHE = {}
 PAPER_TRADES = []
@@ -90,14 +104,121 @@ PORTFOLIO_BALANCE = 0.0
 MARKET_LOGS_BUFFER = []
 TRADE_LOGS_BUFFER = []
 LAST_FLUSH_TS = 0
-
 RECENT_LOGS = []
 ACTIVE_ERRORS = []
 
 WS_SUBSCRIPTION_QUEUE = asyncio.Queue()
 
-# Initialize professional CLOB client
-clob_client = ClobClient("https://clob.polymarket.com")
+# ==========================================
+# ASYNC CLOB WRAPPER
+# ==========================================
+class AsyncClobClient:
+    def __init__(self, client: ClobClient):
+        self.client = client
+
+    async def init_creds(self):
+        return await asyncio.to_thread(self.client.create_or_derive_api_creds)
+
+    async def get_actual_balance(self, token_id: str) -> float:
+        params = BalanceAllowanceParams(
+            asset_type=AssetType.CONDITIONAL,
+            token_id=token_id,
+            signature_type=SIGNATURE_TYPE
+        )
+        res = await asyncio.to_thread(self.client.get_balance_allowance, params)
+        raw_balance = float(res.get("balance", 0.0))
+        return raw_balance / 1_000_000.0
+
+    async def execute_market_order(self, args: MarketOrderArgs):
+        order = await asyncio.to_thread(self.client.create_market_order, args)
+        # ENTERPRISE UPDATE: Using FAK (Fill-And-Kill) for partial fills
+        return await asyncio.to_thread(self.client.post_order, order, OrderType.FAK)
+
+# ==========================================
+# LIVE EXECUTION WORKERS
+# ==========================================
+def rollback_failed_trade(trade_id):
+    global PORTFOLIO_BALANCE
+    for t in PAPER_TRADES[:]:
+        if t['id'] == trade_id:
+            PORTFOLIO_BALANCE += t['invested']
+            PAPER_TRADES.remove(t)
+            break
+
+async def live_buy_worker(trade_id, token_id, size_usd, async_client: AsyncClobClient):
+    buy_args = MarketOrderArgs(token_id=token_id, amount=size_usd, side="BUY")
+    try:
+        log(f"⚡ [LIVE] Dispatching FAK BUY Order for {trade_id}...")
+        buy_res = await async_client.execute_market_order(buy_args)
+        
+        if not buy_res.get("success"):
+            log_error(f"Live BUY Error {trade_id}", Exception(str(buy_res)))
+            rollback_failed_trade(trade_id)
+            return
+
+        raw_taking = float(buy_res.get("takingAmount", 0)) # Received shares
+        raw_making = float(buy_res.get("makingAmount", 0)) # Spent USDC
+        
+        shares_bought = raw_taking / 1_000_000.0 if raw_taking > 1000 else raw_taking
+        usd_spent = raw_making / 1_000_000.0 if raw_making > 1000 else raw_making
+
+        if shares_bought <= 0 or usd_spent <= 0:
+            log(f"⚠️ [LIVE] BUY FAK rejected (No Liquidity) for {trade_id}. Order cancelled.")
+            rollback_failed_trade(trade_id)
+            return
+
+        # STATE SYNC
+        global PORTFOLIO_BALANCE
+        for trade in PAPER_TRADES:
+            if trade['id'] == trade_id:
+                refund = trade['invested'] - usd_spent
+                trade['invested'] = usd_spent
+                trade['shares'] = shares_bought
+                
+                if refund > 0.01:
+                    PORTFOLIO_BALANCE += refund
+                    log(f"🔄 [LIVE] Partial Fill Sync! Refunded to portfolio: ${refund:.2f}")
+                break
+                
+        log(f"✅ [LIVE] BUY matched for {trade_id}. Bought: {shares_bought:.4f} shares for ${usd_spent:.4f}")
+    except Exception as e:
+        log_error(f"Live BUY Exception {trade_id}", e)
+        rollback_failed_trade(trade_id)
+
+async def live_sell_worker(trade_id, token_id, expected_gross_shares, async_client: AsyncClobClient):
+    try:
+        net_shares = 0.0
+        min_threshold = expected_gross_shares * 0.85 # Allows for Polymarket taker fees up to ~15% at extreme odds
+        log(f"⚡ [LIVE] Awaiting net balance sync for {trade_id}...")
+        
+        for attempt in range(10):
+            await asyncio.sleep(2.0)
+            net_shares = await async_client.get_actual_balance(token_id)
+            if net_shares >= min_threshold:
+                log(f"✅ [LIVE] Net balance synchronized: {net_shares:.6f} shares (Attempt {attempt+1})")
+                break
+                
+        sell_amount = min(net_shares, expected_gross_shares)
+        if sell_amount <= 0:
+            log_error(f"LIVE SELL Error {trade_id}", Exception("Insufficient net balance to sell."))
+            return
+
+        sell_args = MarketOrderArgs(token_id=token_id, amount=sell_amount, side="SELL")
+        log(f"⚡ [LIVE] Dispatching FAK SELL Order ({sell_amount:.6f} shares) for {trade_id}...")
+        sell_res = await async_client.execute_market_order(sell_args)
+        
+        if sell_res.get("success"):
+            raw_taking = float(sell_res.get("takingAmount", 0)) # Received USDC
+            raw_making = float(sell_res.get("makingAmount", 0)) # Sold shares
+            
+            usd_received = raw_taking / 1_000_000.0 if raw_taking > 1000 else raw_taking
+            shares_sold = raw_making / 1_000_000.0 if raw_making > 1000 else raw_making
+            
+            log(f"✅ [LIVE] SELL FAK completed for {trade_id}. Received: ${usd_received:.4f} for {shares_sold:.4f} shares.")
+        else:
+            log_error(f"❌ LIVE SELL Rejected {trade_id}", Exception(str(sell_res)))
+    except Exception as e:
+        log_error(f"Live SELL Exception {trade_id}", e)
 
 # ==========================================
 # 0. SYSTEM LOGGING & HELPERS
@@ -129,12 +250,10 @@ def log_error(context_msg, e):
         pass
 
 def perform_tech_dump():
-    """Dumps full memory state to a file for later analysis."""
     try:
         os.makedirs("data", exist_ok=True)
         filename = f"data/tech_dump_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
         
-        # We convert sets to lists so JSON can serialize them
         dump_data = {
             "timestamp": datetime.now().isoformat(),
             "session_id": SESSION_ID,
@@ -338,6 +457,7 @@ def execute_trade(market_id, timeframe, strategy, direction, base_stake, price, 
     size_usd = calculate_dynamic_size(base_stake, win_rate, market_id)
     if price <= 0 or size_usd < base_stake or size_usd > PORTFOLIO_BALANCE: 
         return
+        
     short_id = AVAILABLE_TRADE_IDS.pop(0)
     PORTFOLIO_BALANCE -= size_usd
     shares = size_usd / price
@@ -350,10 +470,21 @@ def execute_trade(market_id, timeframe, strategy, direction, base_stake, price, 
         'entry_price': price, 'entry_time': datetime.now().isoformat(),
         'shares': shares, 'invested': size_usd
     }
+    
     PAPER_TRADES.append(trade)
     TRADE_TIMESTAMPS[market_id].append(now)
     sys.stdout.write('\a'); sys.stdout.flush()
     log(f"✅ [ID: {short_id:02d}] BUY {symbol} {strategy} ({timeframe}) | {direction} | Invested: ${size_usd:.2f} | Price: {price*100:.1f}¢")
+
+    # --- LIVE EXECUTION DISPATCH ---
+    if TRADING_MODE == 'live' and ASYNC_CLOB_CLIENT:
+        token_id = None
+        for cache in MARKET_CACHE.values():
+            if cache['id'] == market_id:
+                token_id = cache['up_id'] if direction == 'UP' else cache['dn_id']
+                break
+        if token_id:
+            asyncio.create_task(live_buy_worker(trade_id, token_id, size_usd, ASYNC_CLOB_CLIENT))
 
 def close_trade(trade, close_price, reason):
     global PORTFOLIO_BALANCE
@@ -364,13 +495,25 @@ def close_trade(trade, close_price, reason):
     PAPER_TRADES.remove(trade)
     AVAILABLE_TRADE_IDS.append(trade['short_id'])
     AVAILABLE_TRADE_IDS.sort()
+    
     icon = "💰" if pnl > 0 else "🩸"
     log(f"{icon} [ID: {trade['short_id']:02d}] SELL {trade['symbol']} {trade['strategy']} [{trade['timeframe']}] ({trade['direction']}) | {reason} | PnL: ${pnl:+.2f}")
+    
     TRADE_LOGS_BUFFER.append((
         trade['id'], trade['market_id'], f"{trade['symbol']}_{trade['timeframe']}",
         trade['strategy'], trade['direction'], trade['invested'], 
         trade['entry_price'], trade['entry_time'], close_price, datetime.now().isoformat(), pnl, reason, SESSION_ID
     ))
+
+    # --- LIVE EXECUTION DISPATCH ---
+    if TRADING_MODE == 'live' and ASYNC_CLOB_CLIENT and "Oracle Settlement" not in reason and "Rozliczenie" not in reason:
+        token_id = None
+        for cache in MARKET_CACHE.values():
+            if cache['id'] == trade['market_id']:
+                token_id = cache['up_id'] if trade['direction'] == 'UP' else cache['dn_id']
+                break
+        if token_id:
+            asyncio.create_task(live_sell_worker(trade['id'], token_id, trade['shares'], ASYNC_CLOB_CLIENT))
 
 def resolve_market(market_id, final_asset_price, target_price):
     is_up_winner = final_asset_price >= target_price
@@ -565,7 +708,6 @@ async def fetch_and_track_markets():
                             'is_clean': is_clean_start
                         }
                         
-                        # --- DODANE ZARZĄDZANIE STATUSEM ---
                         if timeframe_key in LOCAL_STATE['paused_markets']:
                             if is_clean_start:
                                 LOCAL_STATE['market_status'][timeframe_key] = "[ready to start]"
@@ -713,7 +855,7 @@ async def evaluate_strategies(trigger_source, pair_filter=None):
             # =====================================================================        
             if is_base_fetched:
                 
-                # 1. Mid-Game Arb (Wymaga czystej bazy is_clean i braku pauzy)
+                # 1. Mid-Game Arb 
                 m_cfg = config.get('mid_arb', {})
                 mid_arb_flag = f"mid_arb_{m_id}"
                 if not is_paused and m_cfg and is_clean and m_cfg.get('win_end', 0) < sec_left < m_cfg.get('win_start', 0) and mid_arb_flag not in EXECUTED_STRAT[m_id]:
@@ -724,7 +866,7 @@ async def evaluate_strategies(trigger_source, pair_filter=None):
                         execute_trade(m_id, timeframe, "Mid-Game Arb", "DOWN", 2.0, b_dn, symbol, m_cfg.get('wr', 50.0), m_cfg.get('id', ''))
                         EXECUTED_STRAT[m_id].append(mid_arb_flag)
                         
-                # 2. OTM Bargain (Działa w przypadku Mid Join nawet w trybie paused)
+                # 2. OTM Bargain 
                 otm_cfg = config.get('otm', {})
                 otm_flag = f"otm_{m_id}"
                 allow_otm = (not is_paused) or (is_paused and not is_clean)
@@ -738,7 +880,7 @@ async def evaluate_strategies(trigger_source, pair_filter=None):
                             execute_trade(m_id, timeframe, "OTM Bargain", "DOWN", 1.0, b_dn, symbol, otm_cfg.get('wr', 50.0), otm_cfg.get('id', ''))
                             EXECUTED_STRAT[m_id].append(otm_flag)
                             
-                # 3. Momentum (Wymaga czystej bazy i braku pauzy)
+                # 3. Momentum
                 mom_cfg = config.get('momentum', {})
                 if not is_paused and mom_cfg and is_clean and mom_cfg.get('win_end', 0) <= sec_left <= mom_cfg.get('win_start', 0) and 'momentum' not in EXECUTED_STRAT[m_id]:
                     if adj_delta >= mom_cfg.get('delta', 0) and 0 < b_up <= mom_cfg.get('max_p', 0):
@@ -748,7 +890,7 @@ async def evaluate_strategies(trigger_source, pair_filter=None):
                         execute_trade(m_id, timeframe, "1-Min Mom", "DOWN", 1.0, b_dn, symbol, mom_cfg.get('wr', 50.0), mom_cfg.get('id', ''))
                         EXECUTED_STRAT[m_id].append('momentum')
                         
-            # 4. Lag Sniper (Wymaga czystej bazy i braku pauzy)
+            # 4. Lag Sniper
             if trigger_source == "BINANCE_TICK" and is_base_fetched and is_clean:
                 asset_jump = live_p - prev_p 
                 up_change = b_up - m_data['prev_up']
@@ -777,17 +919,35 @@ async def evaluate_strategies(trigger_source, pair_filter=None):
 # MAIN ORCHESTRATION LOOP
 # ==========================================
 async def main():
-    global INITIAL_BALANCE, PORTFOLIO_BALANCE, LAST_FLUSH_TS
+    global INITIAL_BALANCE, PORTFOLIO_BALANCE, LAST_FLUSH_TS, TRADING_MODE, ASYNC_CLOB_CLIENT
     
     parser = argparse.ArgumentParser()
     parser.add_argument('--portfolio', type=float, default=100.0)
+    parser.add_argument('--mode', type=str, choices=['paper', 'live'], default='paper', help="Trading mode: paper or live")
     args = parser.parse_args()
     
     INITIAL_BALANCE = args.portfolio
     PORTFOLIO_BALANCE = args.portfolio
     LAST_FLUSH_TS = (int(time.time()) // 300) * 300
+    TRADING_MODE = args.mode
     
     log(f"🚀 LOCAL ORACLE SYSTEM INITIALIZATION. Session ID: {SESSION_ID}")
+    log(f"⚙️ OPERATING MODE: [{TRADING_MODE.upper()}]")
+
+    if TRADING_MODE == 'live':
+        log("🔌 LIVE MODE INITIALIZED. Connecting to Polymarket API...")
+        try:
+            client = ClobClient(
+                host=HOST, key=PRIVATE_KEY, chain_id=CHAIN_ID, 
+                signature_type=SIGNATURE_TYPE, funder=PROXY_WALLET_ADDRESS
+            )
+            ASYNC_CLOB_CLIENT = AsyncClobClient(client)
+            creds = await ASYNC_CLOB_CLIENT.init_creds()
+            client.set_api_creds(creds)
+            log("✅ Polymarket Live API Authorization Successful.")
+        except Exception as e:
+            log_error("CRITICAL: Polymarket API Auth Failed", e)
+            os._exit(1)
     
     await init_db()
     
