@@ -27,11 +27,11 @@ MAX_MARKET_EXPOSURE = 0.15
 BURST_LIMIT_TRADES = 5         
 BURST_LIMIT_SEC = 10           
 
-# --- MICRO-PROTECTION CONSTANTS ---
-PROFIT_SECURE_SEC = 3.0        
-TAKE_PROFIT_MULTIPLIER = 3.0   
-LAG_SNIPER_SL_DROP = 0.90      
-LAG_SNIPER_TIMEOUT = 10.0      
+# --- NEW MICRO-PROTECTION CONSTANTS ---
+PROFIT_SECURE_SEC = 3.0        # Secure profit if <= 3 seconds left
+TAKE_PROFIT_MULTIPLIER = 3.0   # 3.0x entry price = 200% PnL Profit
+LAG_SNIPER_SL_DROP = 0.90      # -10% drop activates countdown
+LAG_SNIPER_TIMEOUT = 10.0      # 10 seconds to recover or exit
 
 SANITY_THRESHOLDS = {
     'BTC': 0.04, 'ETH': 0.05, 'SOL': 0.08, 'XRP': 0.15
@@ -60,9 +60,8 @@ for idx, cfg in enumerate(TRACKED_CONFIGS):
     cfg['ui_key'] = MARKET_KEYS[idx] if idx < len(MARKET_KEYS) else str(idx)
 
 # ==========================================
-# LOCAL STATE INITIALIZATION
+# LOCAL STATE INITIALIZATION (SAFE START)
 # ==========================================
-# Populate paused_markets with all tracked markets by default
 initial_paused_markets = set([f"{cfg['symbol']}_{cfg['timeframe']}" for cfg in TRACKED_CONFIGS])
 
 LOCAL_STATE = {
@@ -135,12 +134,13 @@ def perform_tech_dump():
         os.makedirs("data", exist_ok=True)
         filename = f"data/tech_dump_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
         
+        # We convert sets to lists so JSON can serialize them
         dump_data = {
             "timestamp": datetime.now().isoformat(),
             "session_id": SESSION_ID,
             "portfolio_balance": PORTFOLIO_BALANCE,
             "paused_markets": list(LOCAL_STATE['paused_markets']),
-            "market_status": LOCAL_STATE['market_status'],
+            "market_status": LOCAL_STATE.get('market_status', {}),
             "locked_prices": LOCKED_PRICES,
             "market_cache": MARKET_CACHE,
             "active_markets": ACTIVE_MARKETS,
@@ -200,14 +200,14 @@ def stop_market(ui_key):
         LOCAL_STATE['paused_markets'].add(tf_key)
         LOCAL_STATE['market_status'][tf_key] = "[paused]"
         close_market_trades(ui_key, reason="MARKET STOP (EMERGENCY LIQUIDATION)")
-        log(f"🛑 [MANUAL] Market [{ui_key}] {tf_key} operations PAUSED. Status set to [paused].")
+        log(f"🛑 [MANUAL] Market [{ui_key}] {tf_key} operations PAUSED.")
 
 def restart_market(ui_key):
     tf_key = get_market_tf_key_by_ui(ui_key)
     if tf_key and tf_key in LOCAL_STATE['paused_markets']:
         LOCAL_STATE['paused_markets'].remove(tf_key)
         LOCAL_STATE['market_status'][tf_key] = "[running]"
-        log(f"▶️ [MANUAL] Market [{ui_key}] {tf_key} RESUMED. Status set to [running].")
+        log(f"▶️ [MANUAL] Market [{ui_key}] {tf_key} RESUMED.")
 
 def handle_stdin():
     cmd = sys.stdin.readline().strip().lower().replace(" ", "")
@@ -565,12 +565,14 @@ async def fetch_and_track_markets():
                             'is_clean': is_clean_start
                         }
                         
-                        # Set appropriate pause status
+                        # --- DODANE ZARZĄDZANIE STATUSEM ---
                         if timeframe_key in LOCAL_STATE['paused_markets']:
                             if is_clean_start:
                                 LOCAL_STATE['market_status'][timeframe_key] = "[ready to start]"
                             else:
                                 LOCAL_STATE['market_status'][timeframe_key] = "[paused] [mid join, OTM only]"
+                        else:
+                            LOCAL_STATE['market_status'][timeframe_key] = "[running]"
                     
                     m_data = LOCKED_PRICES[m_id]
 
@@ -581,7 +583,7 @@ async def fetch_and_track_markets():
                             log(f"⚡ [LOCAL ORACLE] Base definitively frozen at start: ${m_data['price']} for {slug}")
                         else:
                             log(f"⚠️ [LOCAL ORACLE] Mid-interval join. Base set to ${m_data['price']}. Trading paused (except OTM) for {slug}")
-                    
+
                     if timeframe_key not in ACTIVE_MARKETS:
                         ACTIVE_MARKETS[timeframe_key] = {'m_id': m_id, 'target': m_data['price']}
                     elif ACTIVE_MARKETS[timeframe_key]['m_id'] != m_id:
@@ -656,6 +658,7 @@ async def evaluate_strategies(trigger_source, pair_filter=None):
             
             is_base_fetched = m_data.get('base_fetched', False)
             is_clean = m_data.get('is_clean', False)
+            is_paused = timeframe_key in LOCAL_STATE['paused_markets']
             
             live_p = LOCAL_STATE['binance_live_price'].get(pair, 0.0)
             prev_p = LOCAL_STATE['prev_price'].get(pair, 0.0)
@@ -708,12 +711,12 @@ async def evaluate_strategies(trigger_source, pair_filter=None):
             # =====================================================================
             # SIGNAL GENERATION
             # =====================================================================        
-            if is_base_fetched and timeframe_key not in LOCAL_STATE['paused_markets']:
+            if is_base_fetched:
                 
-                # 1. Mid-Game Arb (Wymaga czystej bazy is_clean)
+                # 1. Mid-Game Arb (Wymaga czystej bazy is_clean i braku pauzy)
                 m_cfg = config.get('mid_arb', {})
                 mid_arb_flag = f"mid_arb_{m_id}"
-                if m_cfg and is_clean and m_cfg.get('win_end', 0) < sec_left < m_cfg.get('win_start', 0) and mid_arb_flag not in EXECUTED_STRAT[m_id]:
+                if not is_paused and m_cfg and is_clean and m_cfg.get('win_end', 0) < sec_left < m_cfg.get('win_start', 0) and mid_arb_flag not in EXECUTED_STRAT[m_id]:
                     if adj_delta > m_cfg.get('delta', 0) and 0 < b_up <= m_cfg.get('max_p', 0):
                         execute_trade(m_id, timeframe, "Mid-Game Arb", "UP", 2.0, b_up, symbol, m_cfg.get('wr', 50.0), m_cfg.get('id', ''))
                         EXECUTED_STRAT[m_id].append(mid_arb_flag)
@@ -721,10 +724,12 @@ async def evaluate_strategies(trigger_source, pair_filter=None):
                         execute_trade(m_id, timeframe, "Mid-Game Arb", "DOWN", 2.0, b_dn, symbol, m_cfg.get('wr', 50.0), m_cfg.get('id', ''))
                         EXECUTED_STRAT[m_id].append(mid_arb_flag)
                         
-                # 2. OTM Bargain (NIE wymaga czystej bazy - działa zawsze)
+                # 2. OTM Bargain (Działa w przypadku Mid Join nawet w trybie paused)
                 otm_cfg = config.get('otm', {})
                 otm_flag = f"otm_{m_id}"
-                if otm_cfg and otm_cfg.get('wr', 0.0) > 0.0 and otm_cfg.get('win_end', 0) <= sec_left <= otm_cfg.get('win_start', 0) and otm_flag not in EXECUTED_STRAT[m_id]:
+                allow_otm = (not is_paused) or (is_paused and not is_clean)
+                
+                if allow_otm and otm_cfg and otm_cfg.get('wr', 0.0) > 0.0 and otm_cfg.get('win_end', 0) <= sec_left <= otm_cfg.get('win_start', 0) and otm_flag not in EXECUTED_STRAT[m_id]:
                     if abs(adj_delta) < 40.0:
                         if 0 < b_up <= otm_cfg.get('max_p', 0):
                             execute_trade(m_id, timeframe, "OTM Bargain", "UP", 1.0, b_up, symbol, otm_cfg.get('wr', 50.0), otm_cfg.get('id', ''))
@@ -733,9 +738,9 @@ async def evaluate_strategies(trigger_source, pair_filter=None):
                             execute_trade(m_id, timeframe, "OTM Bargain", "DOWN", 1.0, b_dn, symbol, otm_cfg.get('wr', 50.0), otm_cfg.get('id', ''))
                             EXECUTED_STRAT[m_id].append(otm_flag)
                             
-                # 3. Momentum (Wymaga czystej bazy is_clean)
+                # 3. Momentum (Wymaga czystej bazy i braku pauzy)
                 mom_cfg = config.get('momentum', {})
-                if mom_cfg and is_clean and mom_cfg.get('win_end', 0) <= sec_left <= mom_cfg.get('win_start', 0) and 'momentum' not in EXECUTED_STRAT[m_id]:
+                if not is_paused and mom_cfg and is_clean and mom_cfg.get('win_end', 0) <= sec_left <= mom_cfg.get('win_start', 0) and 'momentum' not in EXECUTED_STRAT[m_id]:
                     if adj_delta >= mom_cfg.get('delta', 0) and 0 < b_up <= mom_cfg.get('max_p', 0):
                         execute_trade(m_id, timeframe, "1-Min Mom", "UP", 1.0, b_up, symbol, mom_cfg.get('wr', 50.0), mom_cfg.get('id', ''))
                         EXECUTED_STRAT[m_id].append('momentum')
@@ -743,14 +748,14 @@ async def evaluate_strategies(trigger_source, pair_filter=None):
                         execute_trade(m_id, timeframe, "1-Min Mom", "DOWN", 1.0, b_dn, symbol, mom_cfg.get('wr', 50.0), mom_cfg.get('id', ''))
                         EXECUTED_STRAT[m_id].append('momentum')
                         
-            # 4. Lag Sniper (Wymaga czystej bazy is_clean)
+            # 4. Lag Sniper (Wymaga czystej bazy i braku pauzy)
             if trigger_source == "BINANCE_TICK" and is_base_fetched and is_clean:
                 asset_jump = live_p - prev_p 
                 up_change = b_up - m_data['prev_up']
                 dn_change = b_dn - m_data['prev_dn']
                 
                 sniper_cfg = config.get('lag_sniper', {})
-                if sniper_cfg and timeframe_key not in LOCAL_STATE['paused_markets']:
+                if not is_paused and sniper_cfg:
                     end_time = sniper_cfg.get('end_time', sniper_cfg.get('czas_koncowki', 0))
                     end_threshold = sniper_cfg.get('end_threshold', sniper_cfg.get('prog_koncowka', 0))
                     base_threshold = sniper_cfg.get('base_threshold', sniper_cfg.get('prog_bazowy', 0))
