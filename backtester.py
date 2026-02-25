@@ -616,6 +616,111 @@ def generate_tracked_configs_output(optimizations):
     except Exception as e:
         print(f"❌ Configuration file save error: {e}")
 
+def export_trades_analysis(db_path="data/polymarket.db"):
+    print("\n" + "=" * 80)
+    print(" 🤖 AI EXPORT: ALL TRADES FROM THE LAST 24 HOURS (WITH ORDERBOOKS)")
+    print("=" * 80)
+    
+    if not os.path.exists(db_path):
+        print("Database not found. Make sure the bot has traded.")
+        return
+        
+    conn = sqlite3.connect(db_path)
+    
+    try:
+        df_trades = pd.read_sql_query("SELECT * FROM trade_logs_v10", conn)
+    except Exception as e:
+        print(f"Error reading trade_logs_v10: {e}")
+        conn.close()
+        return
+
+    if df_trades.empty:
+        print("No trades found in the database.")
+        conn.close()
+        return
+        
+    # Convert timezone-aware/naive ISO8601 appropriately
+    try:
+        df_trades['entry_time_dt'] = pd.to_datetime(df_trades['entry_time'], format='ISO8601', utc=True)
+    except Exception:
+        df_trades['entry_time_dt'] = pd.to_datetime(df_trades['entry_time'])
+    
+    # Using simple naive/UTC comparison offset depending on parsing
+    cutoff = pd.Timestamp.utcnow() - pd.Timedelta(hours=24)
+    if df_trades['entry_time_dt'].dt.tz is None:
+        cutoff = cutoff.tz_localize(None)
+        
+    df_trades_24h = df_trades[df_trades['entry_time_dt'] >= cutoff].copy()
+    
+    if df_trades_24h.empty:
+        print("No trades from the last 24 hours.")
+        conn.close()
+        return
+    
+    print(f"Found {len(df_trades_24h)} trades from the last 24h. Fetching orderbooks...")
+    
+    try:
+        df_markets = pd.read_sql_query("SELECT * FROM market_logs_v11", conn)
+        try:
+            df_markets['fetched_at_dt'] = pd.to_datetime(df_markets['fetched_at'], format='ISO8601', utc=True)
+        except Exception:
+            df_markets['fetched_at_dt'] = pd.to_datetime(df_markets['fetched_at'])
+    except Exception as e:
+        print("Could not read market_logs_v11. Orderbooks will be empty.")
+        df_markets = pd.DataFrame()
+        
+    conn.close()
+    
+    export_rows = []
+    
+    for _, trade in df_trades_24h.iterrows():
+        m_id = trade['market_id']
+        entry_t = trade['entry_time_dt']
+        
+        try:
+            exit_t = pd.to_datetime(trade['exit_time'], format='ISO8601', utc=True)
+            if exit_t.tzinfo is None and entry_t.tzinfo is not None:
+                exit_t = exit_t.tz_localize('UTC')
+        except Exception:
+            try:
+                exit_t = pd.to_datetime(trade['exit_time'])
+            except:
+                exit_t = None
+            
+        entry_ob = {}
+        exit_ob = {}
+        
+        if not df_markets.empty:
+            m_ticks = df_markets[df_markets['market_id'] == m_id]
+            if not m_ticks.empty:
+                # Closest before entry_time or just closest
+                entry_tick = m_ticks.iloc[(m_ticks['fetched_at_dt'] - entry_t).abs().argsort()[:1]]
+                if not entry_tick.empty:
+                    et = entry_tick.iloc[0]
+                    entry_ob = {
+                        'entry_ob_buy_up': et['buy_up'], 'entry_ob_sell_up': et['sell_up'], 'entry_ob_up_vol': et['buy_up_vol'],
+                        'entry_ob_buy_dn': et['buy_down'], 'entry_ob_sell_dn': et['sell_down'], 'entry_ob_dn_vol': et['buy_down_vol']
+                    }
+                    
+                if exit_t is not pd.NaT and exit_t:
+                    exit_tick = m_ticks.iloc[(m_ticks['fetched_at_dt'] - exit_t).abs().argsort()[:1]]
+                    if not exit_tick.empty:
+                        xt = exit_tick.iloc[0]
+                        exit_ob = {
+                            'exit_ob_buy_up': xt['buy_up'], 'exit_ob_sell_up': xt['sell_up'], 'exit_ob_up_vol': xt['buy_up_vol'],
+                            'exit_ob_buy_dn': xt['buy_down'], 'exit_ob_sell_dn': xt['sell_down'], 'exit_ob_dn_vol': xt['buy_down_vol']
+                        }
+                        
+        row = trade.drop('entry_time_dt').to_dict()
+        row.update(entry_ob)
+        row.update(exit_ob)
+        export_rows.append(row)
+        
+    df_export = pd.DataFrame(export_rows)
+    export_path = "data/ai_trades_analysis.csv"
+    df_export.to_csv(export_path, index=False)
+    print(f"✅ Data exported successfully to {export_path}")
+
 if __name__ == "__main__":
     import multiprocessing
     multiprocessing.freeze_support()
@@ -623,11 +728,14 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Watcher v10.29 Alpha Vault Backtester")
     parser.add_argument('--fast-track', action='store_true', help="Skips testing and builds tracked_configs.json from historical vault bests")
     parser.add_argument('--all-history', action='store_true', help="Force backtester to use all historical data instead of just the latest session")
+    parser.add_argument('--trades', action='store_true', help="Exports all trades from the last 24 hours with entry and exit orderbooks for AI analysis")
     args = parser.parse_args()
 
     init_history_db()
 
-    if args.fast_track:
+    if args.trades:
+        export_trades_analysis()
+    elif args.fast_track:
         optimizations = compile_best_from_vault()
         generate_tracked_configs_output(optimizations)
     else:

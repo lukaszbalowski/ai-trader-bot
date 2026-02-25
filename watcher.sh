@@ -46,6 +46,11 @@ case "$COMMAND" in
     docker run --rm -it -v "$(pwd)/data:/app/data" ai-trader python backtester.py --fast-track
     ;;
 
+  trades)
+    echo "🤖 Exporting 24h trades with orderbook data for AI analysis..."
+    docker run --rm -it -v "$(pwd)/data:/app/data" ai-trader python backtester.py --trades
+    ;;
+
   test-executor)
     echo "⚙️ Running execution test (Buy/Sell Cycle)..."
     docker run --rm -it \
@@ -65,6 +70,7 @@ case "$COMMAND" in
     echo "  backtest         - Runs grid simulation and updates strategies from the latest session"
     echo "  backtest-all     - Runs grid simulation on the ENTIRE historical database"
     echo "  fast-track       - Dumps best historical settings to tracked_configs.json"
+    echo "  trades           - Exports all trades from the last 24h with orderbook snapshots to CSV"
     echo "  test-executor    - Runs the Clob API execution test"
     echo "============================================"
     ;;

@@ -110,6 +110,42 @@ ACTIVE_ERRORS = []
 WS_SUBSCRIPTION_QUEUE = asyncio.Queue()
 
 # ==========================================
+# DATABASE EVENT WORKER (ZERO-BLOCKING)
+# ==========================================
+class TradeDatabaseWorker:
+    """
+    Handles background database updates specifically for Market Resolves and Post-Mortem.
+    Operates strictly via queue to preserve microsecond execution loops.
+    """
+    def __init__(self):
+        self.db_queue = asyncio.Queue()
+
+    async def start_worker(self):
+        log("👷 [DB Worker] Alpha Vault background updater started.")
+        while True:
+            try:
+                task = await self.db_queue.get()
+                operation = task.get("operation")
+                data = task.get("data")
+
+                async with aiosqlite.connect('data/polymarket.db') as db:
+                    if operation == "UPDATE_MARKET_CLOSE":
+                        await db.execute("UPDATE trade_logs_v10 SET market_closed_price = ? WHERE market_id = ?", 
+                                        (data['closed_price'], data['market_id']))
+                    elif operation == "UPDATE_SETTLEMENT":
+                        await db.execute("UPDATE trade_logs_v10 SET settlement_value = ?, reason = ? WHERE market_id = ?", 
+                                        (data['value'], f"RESOLVED: {data['status']}", data['market_id']))
+                    await db.commit()
+                
+                self.db_queue.task_done()
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                log_error("DB Worker Error", e)
+
+DB_WORKER = TradeDatabaseWorker()
+
+# ==========================================
 # ASYNC CLOB WRAPPER
 # ==========================================
 class AsyncClobClient:
@@ -131,7 +167,7 @@ class AsyncClobClient:
 
     async def execute_market_order(self, args: MarketOrderArgs):
         order = await asyncio.to_thread(self.client.create_market_order, args)
-        # ENTERPRISE UPDATE: Using FAK (Fill-And-Kill) for partial fills
+        # Using FAK (Fill-And-Kill) for partial fills
         return await asyncio.to_thread(self.client.post_order, order, OrderType.FAK)
 
 # ==========================================
@@ -152,7 +188,12 @@ async def live_buy_worker(trade_id, token_id, size_usd, async_client: AsyncClobC
         buy_res = await async_client.execute_market_order(buy_args)
         
         if not buy_res.get("success"):
-            log_error(f"Live BUY Error {trade_id}", Exception(str(buy_res)))
+            error_msg = str(buy_res).lower()
+            if "no orders found to match" in error_msg:
+                log(f"⚠️ [LIVE] Liquidity sniped by faster bot for {trade_id}. FAK order dropped gracefully.")
+            else:
+                log(f"⚠️ [LIVE] BUY Order rejected for {trade_id}: {buy_res.get('error_message', 'Unknown Error')}")
+            
             rollback_failed_trade(trade_id)
             return
 
@@ -163,7 +204,7 @@ async def live_buy_worker(trade_id, token_id, size_usd, async_client: AsyncClobC
         usd_spent = raw_making / 1_000_000.0 if raw_making > 1000 else raw_making
 
         if shares_bought <= 0 or usd_spent <= 0:
-            log(f"⚠️ [LIVE] BUY FAK rejected (No Liquidity) for {trade_id}. Order cancelled.")
+            log(f"⚠️ [LIVE] BUY FAK matched 0 shares (Dry Book) for {trade_id}. Order cancelled.")
             rollback_failed_trade(trade_id)
             return
 
@@ -175,20 +216,33 @@ async def live_buy_worker(trade_id, token_id, size_usd, async_client: AsyncClobC
                 trade['invested'] = usd_spent
                 trade['shares'] = shares_bought
                 
+                # Update precise entry price for Post-Mortem DB Integrity
+                trade['entry_price'] = usd_spent / shares_bought if shares_bought > 0 else trade['entry_price']
+                trade['clob_order_id'] = buy_res.get("orderID", "")
+                trade['token_id'] = token_id 
+                
                 if refund > 0.01:
                     PORTFOLIO_BALANCE += refund
                     log(f"🔄 [LIVE] Partial Fill Sync! Refunded to portfolio: ${refund:.2f}")
                 break
                 
-        log(f"✅ [LIVE] BUY matched for {trade_id}. Bought: {shares_bought:.4f} shares for ${usd_spent:.4f}")
+        log(f"✅ [LIVE] BUY matched for {trade_id}. Bought: {shares_bought:.4f} shares for ${usd_spent:.4f} (waiting for Fill confirmation)")
+
     except Exception as e:
-        log_error(f"Live BUY Exception {trade_id}", e)
+        err_str = str(e).lower()
+        if "request exception" in err_str or "timeout" in err_str:
+            log(f"🔌 [LIVE] Network timeout / API dropped request for {trade_id}. Rolling back safely.")
+        elif "no orders found" in err_str:
+             log(f"⚠️ [LIVE] Liquidity sniped by faster bot for {trade_id}. FAK order dropped gracefully.")
+        else:
+            log_error(f"Live BUY Fatal Exception {trade_id}", e)
+            
         rollback_failed_trade(trade_id)
 
 async def live_sell_worker(trade_id, token_id, expected_gross_shares, async_client: AsyncClobClient):
     try:
         net_shares = 0.0
-        min_threshold = expected_gross_shares * 0.85 # Allows for Polymarket taker fees up to ~15% at extreme odds
+        min_threshold = expected_gross_shares * 0.85
         log(f"⚡ [LIVE] Awaiting net balance sync for {trade_id}...")
         
         for attempt in range(10):
@@ -208,17 +262,33 @@ async def live_sell_worker(trade_id, token_id, expected_gross_shares, async_clie
         sell_res = await async_client.execute_market_order(sell_args)
         
         if sell_res.get("success"):
-            raw_taking = float(sell_res.get("takingAmount", 0)) # Received USDC
-            raw_making = float(sell_res.get("makingAmount", 0)) # Sold shares
+            clob_order_id = sell_res.get("orderID", "")
+            for trade in PAPER_TRADES:
+                if trade['id'] == trade_id:
+                    trade['close_clob_order_id'] = clob_order_id
+                    break
+            
+            raw_taking = float(sell_res.get("takingAmount", 0)) 
+            raw_making = float(sell_res.get("makingAmount", 0)) 
             
             usd_received = raw_taking / 1_000_000.0 if raw_taking > 1000 else raw_taking
             shares_sold = raw_making / 1_000_000.0 if raw_making > 1000 else raw_making
             
-            log(f"✅ [LIVE] SELL FAK completed for {trade_id}. Received: ${usd_received:.4f} for {shares_sold:.4f} shares.")
+            log(f"✅ [LIVE] SELL FAK dispatched for {trade_id}. Received: ${usd_received:.4f} for {shares_sold:.4f} shares (waiting for Fill confirmation).")
         else:
-            log_error(f"❌ LIVE SELL Rejected {trade_id}", Exception(str(sell_res)))
+            error_msg = str(sell_res).lower()
+            if "no orders found to match" in error_msg:
+                log(f"⚠️ [LIVE] Liquidity sniped by faster bot while selling {trade_id}. FAK order dropped gracefully.")
+            else:
+                log(f"⚠️ [LIVE] SELL Order rejected for {trade_id}: {sell_res.get('error_message', 'Unknown Error')}")
     except Exception as e:
-        log_error(f"Live SELL Exception {trade_id}", e)
+        err_str = str(e).lower()
+        if "request exception" in err_str or "timeout" in err_str:
+            log(f"🔌 [LIVE] Network timeout / API dropped request for SELL {trade_id}.")
+        elif "no orders found" in err_str:
+             log(f"⚠️ [LIVE] Liquidity sniped by faster bot while selling {trade_id}. FAK order dropped gracefully.")
+        else:
+            log_error(f"Live SELL Fatal Exception {trade_id}", e)
 
 # ==========================================
 # 0. SYSTEM LOGGING & HELPERS
@@ -355,17 +425,26 @@ async def init_db():
             buy_up REAL, buy_up_vol REAL, sell_up REAL, sell_up_vol REAL, up_obi REAL,
             buy_down REAL, buy_down_vol REAL, sell_down REAL, sell_down_vol REAL, dn_obi REAL, 
             fetched_at TEXT, session_id TEXT)''')
-        try:
-            await db.execute("ALTER TABLE market_logs_v11 ADD COLUMN session_id TEXT")
+        
+        try: await db.execute("ALTER TABLE market_logs_v11 ADD COLUMN session_id TEXT")
         except Exception: pass
         
         await db.execute('''CREATE TABLE IF NOT EXISTS trade_logs_v10 (
             trade_id TEXT PRIMARY KEY, market_id TEXT, timeframe TEXT, strategy TEXT, direction TEXT,
             invested REAL, entry_price REAL, entry_time TEXT, exit_price REAL, exit_time TEXT, pnl REAL,
             reason TEXT, session_id TEXT)''')
-        try:
-            await db.execute("ALTER TABLE trade_logs_v10 ADD COLUMN session_id TEXT")
-        except Exception: pass
+        
+        new_columns = [
+            "session_id TEXT",
+            "exact_execution_price REAL",
+            "execution_time_ms INTEGER",
+            "market_closed_price REAL",
+            "settlement_value REAL"
+        ]
+        for col in new_columns:
+            try: await db.execute(f"ALTER TABLE trade_logs_v10 ADD COLUMN {col}")
+            except Exception: pass
+            
         await db.commit()
 
 async def flush_to_db():
@@ -435,14 +514,11 @@ async def liquidate_all_and_quit():
 # 3. TRADING LOGIC
 # ==========================================
 def calculate_dynamic_size(base_stake, win_rate, market_id):
-    target_stake = PORTFOLIO_BALANCE * 0.02 * (win_rate / 100.0)
-    size_usd = max(base_stake, target_stake) 
-    market_invested = sum(t['invested'] for t in PAPER_TRADES if t['market_id'] == market_id)
-    if market_invested + size_usd > INITIAL_BALANCE * MAX_MARKET_EXPOSURE:
-        size_usd = (INITIAL_BALANCE * MAX_MARKET_EXPOSURE) - market_invested
-        if size_usd < base_stake:
-            return 0.0 
-    return size_usd
+    """
+    TEMPORARY OVERRIDE FOR LIVE TESTING:
+    Dynamic Kelly Sizing disabled. All stakes are safely hardcoded to exactly $1.0
+    """
+    return 1.0
 
 def execute_trade(market_id, timeframe, strategy, direction, base_stake, price, symbol, win_rate, strat_id=""):
     global PORTFOLIO_BALANCE
@@ -454,21 +530,25 @@ def execute_trade(market_id, timeframe, strategy, direction, base_stake, price, 
     TRADE_TIMESTAMPS[market_id] = [ts for ts in TRADE_TIMESTAMPS[market_id] if now - ts <= BURST_LIMIT_SEC]
     if len(TRADE_TIMESTAMPS[market_id]) >= BURST_LIMIT_TRADES:
         return
+        
     size_usd = calculate_dynamic_size(base_stake, win_rate, market_id)
-    if price <= 0 or size_usd < base_stake or size_usd > PORTFOLIO_BALANCE: 
+    
+    if price <= 0 or size_usd <= 0 or size_usd > PORTFOLIO_BALANCE: 
         return
         
     short_id = AVAILABLE_TRADE_IDS.pop(0)
     PORTFOLIO_BALANCE -= size_usd
     shares = size_usd / price
+    
     unique_suffix = uuid.uuid4().hex[:8]
     trade_id = f"{market_id}_{len(PAPER_TRADES)}_{int(time.time() * 1000)}_{unique_suffix}"
+    
     trade = {
         'id': trade_id, 'short_id': short_id, 'strat_id': strat_id,
         'market_id': market_id, 'timeframe': timeframe, 'symbol': symbol,
         'strategy': strategy, 'direction': direction, 
         'entry_price': price, 'entry_time': datetime.now().isoformat(),
-        'shares': shares, 'invested': size_usd
+        'shares': shares, 'invested': size_usd, 'clob_order_id': '', 'token_id': ''
     }
     
     PAPER_TRADES.append(trade)
@@ -476,7 +556,6 @@ def execute_trade(market_id, timeframe, strategy, direction, base_stake, price, 
     sys.stdout.write('\a'); sys.stdout.flush()
     log(f"✅ [ID: {short_id:02d}] BUY {symbol} {strategy} ({timeframe}) | {direction} | Invested: ${size_usd:.2f} | Price: {price*100:.1f}¢")
 
-    # --- LIVE EXECUTION DISPATCH ---
     if TRADING_MODE == 'live' and ASYNC_CLOB_CLIENT:
         token_id = None
         for cache in MARKET_CACHE.values():
@@ -505,7 +584,6 @@ def close_trade(trade, close_price, reason):
         trade['entry_price'], trade['entry_time'], close_price, datetime.now().isoformat(), pnl, reason, SESSION_ID
     ))
 
-    # --- LIVE EXECUTION DISPATCH ---
     if TRADING_MODE == 'live' and ASYNC_CLOB_CLIENT and "Oracle Settlement" not in reason and "Rozliczenie" not in reason:
         token_id = None
         for cache in MARKET_CACHE.values():
@@ -516,11 +594,13 @@ def close_trade(trade, close_price, reason):
             asyncio.create_task(live_sell_worker(trade['id'], token_id, trade['shares'], ASYNC_CLOB_CLIENT))
 
 def resolve_market(market_id, final_asset_price, target_price):
+    if TRADING_MODE == 'live':
+        return
     is_up_winner = final_asset_price >= target_price
     for trade in PAPER_TRADES[:]:
         if trade['market_id'] == market_id:
             close_price = 1.0 if (trade['direction'] == 'UP' and is_up_winner) or (trade['direction'] == 'DOWN' and not is_up_winner) else 0.0
-            close_trade(trade, close_price, "Oracle Settlement")
+            close_trade(trade, close_price, "Oracle Settlement (Simulated)")
 
 def extract_orderbook_metrics(token_id):
     book = LOCAL_STATE['polymarket_books'].get(token_id, {'bids': {}, 'asks': {}})
@@ -538,6 +618,31 @@ def extract_orderbook_metrics(token_id):
     if bid_vol_sum + ask_vol_sum > 0:
         obi = (bid_vol_sum - ask_vol_sum) / (bid_vol_sum + ask_vol_sum)
     return best_ask, best_ask_vol, best_bid, best_bid_vol, obi
+
+def get_symbol_by_market_id(market_id: str):
+    for cache in MARKET_CACHE.values():
+        if cache['id'] == market_id:
+            return cache.get('config', {}).get('symbol', '')
+    return ""
+
+async def calibrate_market_offset(market_id: str, strike_price: float):
+    """
+    Calculates the delta between Binance Spot and Polymarket Oracle (Strike).
+    This eliminates 'Basis Risk' where prices differ by tens of dollars.
+    """
+    symbol = get_symbol_by_market_id(market_id)
+    if not symbol: return
+    pair = f"{symbol}USDT"
+    
+    binance_spot = LOCAL_STATE['binance_live_price'].get(pair, 0.0)
+    
+    if binance_spot > 0:
+        calculated_offset = binance_spot - strike_price
+        
+        if market_id in LOCKED_PRICES:
+            LOCKED_PRICES[market_id]['offset'] = calculated_offset
+            log(f"🎯 [CALIBRATION] Basis Locked! Symbol: {symbol}, Offset: {calculated_offset:.2f} USD")
+            log(f"📊 Binance: {binance_spot} | Strike: {strike_price}")
 
 # ==========================================
 # 4. WEBSOCKETS (BINANCE & CLOB)
@@ -569,7 +674,7 @@ async def polymarket_ws_listener():
     while True:
         try:
             async with websockets.connect(url, ping_interval=20, ping_timeout=20) as ws:
-                log("[WS] Connected to Polymarket CLOB")
+                log("[WS] Connected to Polymarket CLOB Market Stream")
                 if subscribed_tokens:
                     await ws.send(json.dumps({
                         "assets_ids": list(subscribed_tokens), 
@@ -596,14 +701,17 @@ async def polymarket_ws_listener():
                         try: parsed_msg = json.loads(msg)
                         except: continue
                         if not isinstance(parsed_msg, list): parsed_msg = [parsed_msg]
+                        
                         for data in parsed_msg:
                             event_type = data.get('event_type', '')
+                            
                             if event_type == 'book' or 'bids' in data or 'asks' in data:
                                 t_id = data.get('asset_id')
                                 if t_id:
                                     LOCAL_STATE['polymarket_books'][t_id] = {'bids': {}, 'asks': {}}
                                     for bid in data.get('bids', []): LOCAL_STATE['polymarket_books'][t_id]['bids'][float(bid['price'])] = float(bid['size'])
                                     for ask in data.get('asks', []): LOCAL_STATE['polymarket_books'][t_id]['asks'][float(ask['price'])] = float(ask['size'])
+                            
                             if event_type == 'price_change' or 'price_changes' in data:
                                 for change in data.get('price_changes', []):
                                     t_id = change.get('asset_id')
@@ -613,12 +721,96 @@ async def polymarket_ws_listener():
                                     size = float(change.get('size', 0))
                                     side = 'bids' if change.get('side', '').upper() == 'BUY' else 'asks'
                                     LOCAL_STATE['polymarket_books'][t_id][side][price] = size
+                            
+                            if event_type == 'market_status_change' or 'status' in data:
+                                m_status = data.get('status')
+                                market_id_resp = data.get('market_id') or data.get('asset_id')
+                                if m_status == "CLOSED":
+                                    last_p = data.get('last_trade_price', 0.0)
+                                    await DB_WORKER.db_queue.put({
+                                        "operation": "UPDATE_MARKET_CLOSE",
+                                        "data": {"market_id": market_id_resp, "closed_price": last_p}
+                                    })
+                                elif m_status == "RESOLVED":
+                                    s_val = data.get('settlement_value', 0.0)
+                                    s_str = "WON" if s_val > 0 else "LOST"
+                                    await DB_WORKER.db_queue.put({
+                                        "operation": "UPDATE_SETTLEMENT",
+                                        "data": {"market_id": market_id_resp, "status": s_str, "value": s_val}
+                                    })
+                                    for trade in PAPER_TRADES[:]:
+                                        if trade.get('market_id') == market_id_resp or trade.get('token_id') == market_id_resp:
+                                            if trade.get('token_id') == market_id_resp:
+                                                close_trade(trade, s_val, f"RESOLVED: {s_str} (Polymarket Oracle)")
+                                            elif trade.get('market_id') == market_id_resp:
+                                                close_trade(trade, s_val, f"RESOLVED: {s_str} (Fallback Oracle)")
+                                    
                         await evaluate_strategies("CLOB_TICK")
                 finally: queue_task.cancel()
         except Exception as e:
             if "no close frame received or sent" not in str(e):
                 log_error("Polymarket CLOB", e)
             await asyncio.sleep(0.1)
+
+async def user_ws_listener():
+    if TRADING_MODE != 'live':
+        return
+        
+    url = "wss://ws-subscriptions-clob.polymarket.com/ws/user"
+    while not ASYNC_CLOB_CLIENT or not ASYNC_CLOB_CLIENT.client.creds:
+        await asyncio.sleep(1)
+        
+    creds = ASYNC_CLOB_CLIENT.client.creds
+    while True:
+        try:
+            async with websockets.connect(url, ping_interval=20, ping_timeout=20) as ws:
+                log("[WS] Connected to Polymarket CLOB User Stream")
+                auth_payload = {
+                    "auth": {
+                        "apiKey": creds.api_key,
+                        "secret": creds.api_secret,
+                        "passphrase": creds.api_passphrase
+                    },
+                    "type": "user"
+                }
+                await ws.send(json.dumps(auth_payload))
+                
+                async for msg in ws:
+                    if not msg.startswith(('{', '[')): continue
+                    try: parsed_msg = json.loads(msg)
+                    except: continue
+                    
+                    if not isinstance(parsed_msg, list): parsed_msg = [parsed_msg]
+                    
+                    for data in parsed_msg:
+                        event_type = data.get('event_type')
+                        if event_type == 'trade':
+                            status = data.get('status')
+                            if status == "MATCHED":
+                                maker_orders = data.get('maker_orders', [])
+                                if not maker_orders:
+                                    continue
+                                    
+                                exact_price = float(data.get('price', 0))
+                                ts_sec = float(data.get('timestamp', 0))
+                                
+                                taker_order_id = data.get('taker_order_id')
+                                
+                                for trade in PAPER_TRADES:
+                                    if trade.get('clob_order_id') == taker_order_id or any(m.get('order_id') == trade.get('clob_order_id') for m in maker_orders):
+                                        log(f"🎯 [USER WS] Trade EXECUTION confirmed for {trade['id']}! Price: {exact_price}")
+                                        trade['entry_price'] = exact_price
+                                        trade['execution_time_ms'] = int(ts_sec * 1000)
+                                        break
+                                        
+                                    if trade.get('close_clob_order_id') == taker_order_id or any(m.get('order_id') == trade.get('close_clob_order_id') for m in maker_orders):
+                                        log(f"🎯 [USER WS] Trade CLOSE confirmed for {trade['id']}! Price: {exact_price}")
+                                        break
+                                        
+        except Exception as e:
+            if "no close frame received or sent" not in str(e):
+                log_error("Polymarket User WS", e)
+            await asyncio.sleep(2)
 
 # ==========================================
 # 5. MARKET STATE MANAGER (LOCAL ORACLE)
@@ -712,7 +904,8 @@ async def fetch_and_track_markets():
                             if is_clean_start:
                                 LOCAL_STATE['market_status'][timeframe_key] = "[ready to start]"
                             else:
-                                LOCAL_STATE['market_status'][timeframe_key] = "[paused] [mid join, OTM only]"
+                                # POPRAWKA: Prawidłowy komunikat, bez 'OTM only'
+                                LOCAL_STATE['market_status'][timeframe_key] = "[paused] [waiting for next]"
                         else:
                             LOCAL_STATE['market_status'][timeframe_key] = "[running]"
                     
@@ -723,18 +916,24 @@ async def fetch_and_track_markets():
                         m_data['base_fetched'] = True
                         if m_data.get('is_clean', False):
                             log(f"⚡ [LOCAL ORACLE] Base definitively frozen at start: ${m_data['price']} for {slug}")
+                            asyncio.create_task(calibrate_market_offset(m_id, m_data['price']))
                         else:
-                            log(f"⚠️ [LOCAL ORACLE] Mid-interval join. Base set to ${m_data['price']}. Trading paused (except OTM) for {slug}")
+                            # POPRAWKA: Zaostrzony komunikat w terminalu
+                            log(f"⚠️ [LOCAL ORACLE] Mid-interval join. Base set to ${m_data['price']}. Trading strictly paused until next interval for {slug}")
 
                     if timeframe_key not in ACTIVE_MARKETS:
                         ACTIVE_MARKETS[timeframe_key] = {'m_id': m_id, 'target': m_data['price']}
                     elif ACTIVE_MARKETS[timeframe_key]['m_id'] != m_id:
                         old_m_id = ACTIVE_MARKETS[timeframe_key]['m_id']
-                        old_target = ACTIVE_MARKETS[timeframe_key]['target']
-                        adjusted_final_price = live_p + config['offset']
                         if not is_pre_warming:
-                            log(f"🔔 MARKET CLOSED [{timeframe_key}]. Resolving...")
-                            resolve_market(old_m_id, adjusted_final_price, old_target)
+                            if TRADING_MODE == 'live':
+                                log(f"🔔 MARKET CLOSED [{timeframe_key}]. Waiting for official settlement from Polymarket.")
+                            else:
+                                old_target = ACTIVE_MARKETS[timeframe_key]['target']
+                                adjusted_final_price = live_p + config['offset']
+                                log(f"🔔 MARKET CLOSED [{timeframe_key}]. Resolving (Simulated)...")
+                                resolve_market(old_m_id, adjusted_final_price, old_target)
+                            
                             ACTIVE_MARKETS[timeframe_key] = {'m_id': m_id, 'target': m_data['price']}
                             LOCAL_STATE.pop(f'timing_{old_m_id}', None)
                             LIVE_MARKET_DATA.pop(old_m_id, None)
@@ -759,7 +958,8 @@ async def fetch_and_track_markets():
                     s_dn, s_dn_vol, b_dn, b_dn_vol, dn_obi = extract_orderbook_metrics(dn_id)
                     
                     LIVE_MARKET_DATA[m_id] = {'UP_BID': s_up, 'DOWN_BID': s_dn}
-                    adjusted_live_p = live_p + config['offset']
+                    current_offset = m_data.get('offset', 0.0)
+                    adjusted_live_p = live_p - current_offset
                     
                     if not is_pre_warming:
                         MARKET_LOGS_BUFFER.append((
@@ -807,8 +1007,9 @@ async def evaluate_strategies(trigger_source, pair_filter=None):
             
             if live_p == 0.0: continue
             
-            adjusted_live_p = live_p + config['offset']
-            adj_delta = adjusted_live_p - m_data['price']
+            current_offset = m_data.get('offset', 0.0)
+            synthetic_oracle_price = live_p - current_offset
+            adj_delta = synthetic_oracle_price - m_data['price']
             
             sanity_limit = SANITY_THRESHOLDS.get(symbol, 0.05)
             if m_data['price'] > 0 and abs(adj_delta) / m_data['price'] > sanity_limit:
@@ -817,8 +1018,11 @@ async def evaluate_strategies(trigger_source, pair_filter=None):
             s_up, _, b_up, _, _ = extract_orderbook_metrics(cache['up_id'])
             s_dn, _, b_dn, _, _ = extract_orderbook_metrics(cache['dn_id'])
             
+            # For data logging we log the adjusted synthetic price
+            adjusted_live_p = synthetic_oracle_price
+            
             # =====================================================================
-            # MICRO-PROTECTION ENGINE: Stop Losses, Take Profits & Time Exits
+            # MICRO-PROTECTION ENGINE
             # =====================================================================
             for trade in PAPER_TRADES[:]:
                 if trade['market_id'] != m_id: continue
@@ -860,18 +1064,18 @@ async def evaluate_strategies(trigger_source, pair_filter=None):
                 mid_arb_flag = f"mid_arb_{m_id}"
                 if not is_paused and m_cfg and is_clean and m_cfg.get('win_end', 0) < sec_left < m_cfg.get('win_start', 0) and mid_arb_flag not in EXECUTED_STRAT[m_id]:
                     if adj_delta > m_cfg.get('delta', 0) and 0 < b_up <= m_cfg.get('max_p', 0):
-                        execute_trade(m_id, timeframe, "Mid-Game Arb", "UP", 2.0, b_up, symbol, m_cfg.get('wr', 50.0), m_cfg.get('id', ''))
+                        execute_trade(m_id, timeframe, "Mid-Game Arb", "UP", 1.0, b_up, symbol, m_cfg.get('wr', 50.0), m_cfg.get('id', ''))
                         EXECUTED_STRAT[m_id].append(mid_arb_flag)
                     elif adj_delta < -m_cfg.get('delta', 0) and 0 < b_dn <= m_cfg.get('max_p', 0):
-                        execute_trade(m_id, timeframe, "Mid-Game Arb", "DOWN", 2.0, b_dn, symbol, m_cfg.get('wr', 50.0), m_cfg.get('id', ''))
+                        execute_trade(m_id, timeframe, "Mid-Game Arb", "DOWN", 1.0, b_dn, symbol, m_cfg.get('wr', 50.0), m_cfg.get('id', ''))
                         EXECUTED_STRAT[m_id].append(mid_arb_flag)
                         
                 # 2. OTM Bargain 
                 otm_cfg = config.get('otm', {})
                 otm_flag = f"otm_{m_id}"
-                allow_otm = (not is_paused) or (is_paused and not is_clean)
                 
-                if allow_otm and otm_cfg and otm_cfg.get('wr', 0.0) > 0.0 and otm_cfg.get('win_end', 0) <= sec_left <= otm_cfg.get('win_start', 0) and otm_flag not in EXECUTED_STRAT[m_id]:
+                # ZABEZPIECZENIE: Całkowicie usunięty wytrych. Zwykły warunek "not is_paused".
+                if not is_paused and otm_cfg and otm_cfg.get('wr', 0.0) > 0.0 and otm_cfg.get('win_end', 0) <= sec_left <= otm_cfg.get('win_start', 0) and otm_flag not in EXECUTED_STRAT[m_id]:
                     if abs(adj_delta) < 40.0:
                         if 0 < b_up <= otm_cfg.get('max_p', 0):
                             execute_trade(m_id, timeframe, "OTM Bargain", "UP", 1.0, b_up, symbol, otm_cfg.get('wr', 50.0), otm_cfg.get('id', ''))
@@ -907,9 +1111,9 @@ async def evaluate_strategies(trigger_source, pair_filter=None):
                     prog = end_threshold if sec_left <= end_time else base_threshold
                     if 10 < sec_left < timing['interval_s'] - 5:
                         if asset_jump >= prog and abs(up_change) <= lag_tolerance and 0 < b_up <= max_price:
-                            execute_trade(m_id, timeframe, "Lag Sniper", "UP", 2.0, b_up, symbol, sniper_cfg.get('wr', 50.0), sniper_cfg.get('id', ''))
+                            execute_trade(m_id, timeframe, "Lag Sniper", "UP", 1.0, b_up, symbol, sniper_cfg.get('wr', 50.0), sniper_cfg.get('id', ''))
                         elif asset_jump <= -prog and abs(dn_change) <= lag_tolerance and 0 < b_dn <= max_price:
-                            execute_trade(m_id, timeframe, "Lag Sniper", "DOWN", 2.0, b_dn, symbol, sniper_cfg.get('wr', 50.0), sniper_cfg.get('id', ''))
+                            execute_trade(m_id, timeframe, "Lag Sniper", "DOWN", 1.0, b_dn, symbol, sniper_cfg.get('wr', 50.0), sniper_cfg.get('id', ''))
                             
                 m_data['prev_up'], m_data['prev_dn'] = b_up, b_dn
     except Exception as e:
@@ -932,7 +1136,7 @@ async def main():
     TRADING_MODE = args.mode
     
     log(f"🚀 LOCAL ORACLE SYSTEM INITIALIZATION. Session ID: {SESSION_ID}")
-    log(f"⚙️ OPERATING MODE: [{TRADING_MODE.upper()}]")
+    log(f"⚙️ OPERATING MODE: [{TRADING_MODE.upper()}] (ALL STAKES LOCKED TO $1.0)")
 
     if TRADING_MODE == 'live':
         log("🔌 LIVE MODE INITIALIZED. Connecting to Polymarket API...")
@@ -958,8 +1162,10 @@ async def main():
         pass
         
     await asyncio.gather(
+        DB_WORKER.start_worker(),
         binance_ws_listener(),
         polymarket_ws_listener(),
+        user_ws_listener(),
         fetch_and_track_markets(),
         ui_updater_worker(),
         async_smart_flush_worker()
