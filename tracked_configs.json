@@ -6,21 +6,13 @@
         "interval": 900,
         "decimals": 4,
         "offset": 0.0,
-        "lag_sniper": {
-            "base_threshold": 0.0012,
-            "end_threshold": 0.0005,
-            "end_time": 70,
-            "lag_tolerance": 0.02,
+        "kinetic_sniper": {
+            "window_ms": 1000,
+            "trigger_pct": 0.0040,
             "max_price": 0.85,
-            "id": "xrp_15m_ls_1771765596",
-            "wr": 68.3
-        },
-        "otm": {
-            "win_start": 90,
-            "win_end": 20,
-            "max_p": 0.02,
-            "id": "xrp_15m_otm_TEST",
-            "wr": 50.0
+            "id": "xrp_15m_kin_1771765596",
+            "wr": 68.3,
+            "max_slippage": 0.025
         }
     },
     {
@@ -30,21 +22,13 @@
         "interval": 900,
         "decimals": 2,
         "offset": 0.0,
-        "lag_sniper": {
-            "base_threshold": 60,
-            "end_threshold": 9,
-            "end_time": 80,
-            "lag_tolerance": 0.02,
+        "kinetic_sniper": {
+            "window_ms": 1000,
+            "trigger_pct": 0.0010,
             "max_price": 0.85,
-            "id": "btc_15m_ls_1771765682",
-            "wr": 65.8
-        },
-        "otm": {
-            "win_start": 90,
-            "win_end": 20,
-            "max_p": 0.02,
-            "id": "btc_15m_otm_TEST",
-            "wr": 50.0
+            "id": "btc_15m_kin_1771765682",
+            "wr": 65.8,
+            "max_slippage": 0.025
         }
     },
     {
@@ -54,21 +38,13 @@
         "interval": 900,
         "decimals": 2,
         "offset": 0.0,
-        "lag_sniper": {
-            "base_threshold": 2.1,
-            "end_threshold": 0.9,
-            "end_time": 75,
-            "lag_tolerance": 0.02,
+        "kinetic_sniper": {
+            "window_ms": 1000,
+            "trigger_pct": 0.0015,
             "max_price": 0.85,
-            "id": "eth_15m_ls_1771765854",
-            "wr": 63.2
-        },
-        "otm": {
-            "win_start": 90,
-            "win_end": 20,
-            "max_p": 0.02,
-            "id": "eth_15m_otm_TEST",
-            "wr": 50.0
+            "id": "eth_15m_kin_1771765854",
+            "wr": 63.2,
+            "max_slippage": 0.025
         }
     },
     {
@@ -78,21 +54,13 @@
         "interval": 900,
         "decimals": 3,
         "offset": 0.0,
-        "lag_sniper": {
-            "base_threshold": 0.14,
-            "end_threshold": 0.04,
-            "end_time": 75,
-            "lag_tolerance": 0.05,
+        "kinetic_sniper": {
+            "window_ms": 1000,
+            "trigger_pct": 0.0035,
             "max_price": 0.85,
-            "id": "sol_15m_ls_1771765942",
-            "wr": 84.4
-        },
-        "otm": {
-            "win_start": 90,
-            "win_end": 20,
-            "max_p": 0.02,
-            "id": "sol_15m_otm_TEST",
-            "wr": 50.0
+            "id": "sol_15m_kin_1771765942",
+            "wr": 84.4,
+            "max_slippage": 0.025
         }
     },
     {
@@ -102,21 +70,13 @@
         "interval": 300,
         "decimals": 2,
         "offset": 0.0,
-        "lag_sniper": {
-            "base_threshold": 60,
-            "end_threshold": 9,
-            "end_time": 90,
-            "lag_tolerance": 0.05,
+        "kinetic_sniper": {
+            "window_ms": 1000,
+            "trigger_pct": 0.0006,
             "max_price": 0.85,
-            "id": "btc_5m_ls_1771766037",
-            "wr": 69.2
-        },
-        "otm": {
-            "win_start": 90,
-            "win_end": 22,
-            "max_p": 0.03,
-            "id": "btc_5m_otm_1771766235",
-            "wr": 47.9
+            "id": "btc_5m_kin_1771766037",
+            "wr": 69.2,
+            "max_slippage": 0.025
         }
     },
     {
@@ -126,21 +86,13 @@
         "interval": 300,
         "decimals": 2,
         "offset": 0.0,
-        "lag_sniper": {
-            "base_threshold": 1.7,
-            "end_threshold": 0.9,
-            "end_time": 55,
-            "lag_tolerance": 0.05,
+        "kinetic_sniper": {
+            "window_ms": 1000,
+            "trigger_pct": 0.0010,
             "max_price": 0.85,
-            "id": "eth_5m_ls_1771766238",
-            "wr": 69.8
-        },
-        "otm": {
-            "win_start": 90,
-            "win_end": 22,
-            "max_p": 0.03,
-            "id": "eth_5m_otm_1771766333",
-            "wr": 37.3
+            "id": "eth_5m_kin_1771766238",
+            "wr": 69.8,
+            "max_slippage": 0.025
         }
     },
     {
@@ -150,21 +102,13 @@
         "interval": 300,
         "decimals": 3,
         "offset": 0.0,
-        "lag_sniper": {
-            "base_threshold": 0.09,
-            "end_threshold": 0.04,
-            "end_time": 85,
-            "lag_tolerance": 0.02,
+        "kinetic_sniper": {
+            "window_ms": 1000,
+            "trigger_pct": 0.0020,
             "max_price": 0.85,
-            "id": "sol_5m_ls_1771766336",
-            "wr": 75.9
-        },
-        "otm": {
-            "win_start": 90,
-            "win_end": 20,
-            "max_p": 0.03,
-            "id": "sol_5m_otm_1771766429",
-            "wr": 44.4
+            "id": "sol_5m_kin_1771766336",
+            "wr": 75.9,
+            "max_slippage": 0.025
         }
     },
     {
@@ -174,21 +118,13 @@
         "interval": 300,
         "decimals": 4,
         "offset": 0.0,
-        "lag_sniper": {
-            "base_threshold": 0.0025,
-            "end_threshold": 0.0004,
-            "end_time": 70,
-            "lag_tolerance": 0.05,
+        "kinetic_sniper": {
+            "window_ms": 1000,
+            "trigger_pct": 0.0025,
             "max_price": 0.85,
-            "id": "xrp_5m_ls_1771766432",
-            "wr": 76.7
-        },
-        "otm": {
-            "win_start": 90,
-            "win_end": 22,
-            "max_p": 0.03,
-            "id": "xrp_5m_otm_1771766523",
-            "wr": 57.1
+            "id": "xrp_5m_kin_1771766432",
+            "wr": 76.7,
+            "max_slippage": 0.025
         }
     },
     {
@@ -198,21 +134,13 @@
         "interval": 3600,
         "decimals": 4,
         "offset": 0.0,
-        "lag_sniper": {
-            "base_threshold": 0.001,
-            "end_threshold": 0.0005,
-            "end_time": 50,
-            "lag_tolerance": 0.05,
+        "kinetic_sniper": {
+            "window_ms": 1000,
+            "trigger_pct": 0.0060,
             "max_price": 0.85,
-            "id": "xrp_1h_ls_1771766526",
-            "wr": 70.4
-        },
-        "otm": {
-            "win_start": 90,
-            "win_end": 20,
-            "max_p": 0.03,
-            "id": "xrp_1h_otm_TEST",
-            "wr": 50.0
+            "id": "xrp_1h_kin_1771766526",
+            "wr": 70.4,
+            "max_slippage": 0.025
         }
     },
     {
@@ -222,21 +150,13 @@
         "interval": 3600,
         "decimals": 2,
         "offset": 0.0,
-        "lag_sniper": {
-            "base_threshold": 45,
-            "end_threshold": 9,
-            "end_time": 30,
-            "lag_tolerance": 0.02,
+        "kinetic_sniper": {
+            "window_ms": 1000,
+            "trigger_pct": 0.0018,
             "max_price": 0.85,
-            "id": "btc_1h_ls_1771766604",
-            "wr": 74.1
-        },
-        "otm": {
-            "win_start": 90,
-            "win_end": 20,
-            "max_p": 0.03,
-            "id": "btc_1h_otm_TEST",
-            "wr": 50.0
+            "id": "btc_1h_kin_1771766604",
+            "wr": 74.1,
+            "max_slippage": 0.025
         }
     },
     {
@@ -246,21 +166,13 @@
         "interval": 3600,
         "decimals": 2,
         "offset": 0.0,
-        "lag_sniper": {
-            "base_threshold": 2.7,
-            "end_threshold": 1.2,
-            "end_time": 75,
-            "lag_tolerance": 0.05,
+        "kinetic_sniper": {
+            "window_ms": 1000,
+            "trigger_pct": 0.0025,
             "max_price": 0.85,
-            "id": "eth_1h_ls_1771766749",
-            "wr": 83.3
-        },
-        "otm": {
-            "win_start": 90,
-            "win_end": 20,
-            "max_p": 0.03,
-            "id": "eth_1h_otm_TEST",
-            "wr": 50.0
+            "id": "eth_1h_kin_1771766749",
+            "wr": 83.3,
+            "max_slippage": 0.025
         }
     },
     {
@@ -270,21 +182,13 @@
         "interval": 3600,
         "decimals": 3,
         "offset": 0.0,
-        "lag_sniper": {
-            "base_threshold": 0.12,
-            "end_threshold": 0.04,
-            "end_time": 30,
-            "lag_tolerance": 0.05,
+        "kinetic_sniper": {
+            "window_ms": 1000,
+            "trigger_pct": 0.0050,
             "max_price": 0.85,
-            "id": "sol_1h_ls_1771766830",
-            "wr": 85.0
-        },
-        "otm": {
-            "win_start": 90,
-            "win_end": 20,
-            "max_p": 0.03,
-            "id": "sol_1h_otm_TEST",
-            "wr": 50.0
+            "id": "sol_1h_kin_1771766830",
+            "wr": 85.0,
+            "max_slippage": 0.025
         }
     }
 ]

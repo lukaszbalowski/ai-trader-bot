@@ -10,6 +10,7 @@ import argparse
 import traceback
 import uuid
 import string
+from collections import deque
 from datetime import datetime, timedelta
 import pytz
 from dotenv import load_dotenv
@@ -46,8 +47,8 @@ BURST_LIMIT_SEC = 10
 # --- NEW MICRO-PROTECTION CONSTANTS ---
 PROFIT_SECURE_SEC = 3.0        # Secure profit if <= 3 seconds left
 TAKE_PROFIT_MULTIPLIER = 3.0   # 3.0x entry price = 200% PnL Profit
-LAG_SNIPER_SL_DROP = 0.90      # -10% drop activates countdown
-LAG_SNIPER_TIMEOUT = 10.0      # 10 seconds to recover or exit
+KINETIC_SNIPER_SL_DROP = 0.90  # -10% drop activates countdown
+KINETIC_SNIPER_TIMEOUT = 10.0  # 10 seconds to recover or exit
 
 SANITY_THRESHOLDS = {
     'BTC': 0.04, 'ETH': 0.05, 'SOL': 0.08, 'XRP': 0.15
@@ -81,6 +82,7 @@ initial_paused_markets = set([f"{cfg['symbol']}_{cfg['timeframe']}" for cfg in T
 
 LOCAL_STATE = {
     'binance_live_price': {cfg['pair']: 0.0 for cfg in TRACKED_CONFIGS},
+    'price_history': {cfg['pair']: deque() for cfg in TRACKED_CONFIGS}, # Rolling window for Kinetic Sniping
     'prev_price': {cfg['pair']: 0.0 for cfg in TRACKED_CONFIGS},
     'polymarket_books': {},
     'session_id': SESSION_ID,
@@ -165,6 +167,15 @@ class AsyncClobClient:
         raw_balance = float(res.get("balance", 0.0))
         return raw_balance / 1_000_000.0
 
+    async def get_collateral_balance(self) -> float:
+        params = BalanceAllowanceParams(
+            asset_type=AssetType.COLLATERAL,
+            signature_type=SIGNATURE_TYPE
+        )
+        res = await asyncio.to_thread(self.client.get_balance_allowance, params)
+        raw_balance = float(res.get("balance", 0.0))
+        return raw_balance / 1_000_000.0
+
     async def execute_market_order(self, args: MarketOrderArgs):
         order = await asyncio.to_thread(self.client.create_market_order, args)
         # Using FAK (Fill-And-Kill) for partial fills
@@ -173,6 +184,18 @@ class AsyncClobClient:
 # ==========================================
 # LIVE EXECUTION WORKERS
 # ==========================================
+async def sync_live_balance():
+    global PORTFOLIO_BALANCE
+    if TRADING_MODE == 'live' and ASYNC_CLOB_CLIENT:
+        try:
+            await asyncio.sleep(2.0) # Wait for settlement/execution finality before checking
+            balance = await ASYNC_CLOB_CLIENT.get_collateral_balance()
+            if balance > 0:
+                PORTFOLIO_BALANCE = balance
+                log(f"💰 [LIVE] Wallet Cash Balance Auto-Synced: ${PORTFOLIO_BALANCE:.2f}")
+        except Exception as e:
+            log_error("Failed to sync live balance", e)
+
 def rollback_failed_trade(trade_id):
     global PORTFOLIO_BALANCE
     for t in PAPER_TRADES[:]:
@@ -227,6 +250,7 @@ async def live_buy_worker(trade_id, token_id, size_usd, async_client: AsyncClobC
                 break
                 
         log(f"✅ [LIVE] BUY matched for {trade_id}. Bought: {shares_bought:.4f} shares for ${usd_spent:.4f} (waiting for Fill confirmation)")
+        asyncio.create_task(sync_live_balance())
 
     except Exception as e:
         err_str = str(e).lower()
@@ -275,6 +299,7 @@ async def live_sell_worker(trade_id, token_id, expected_gross_shares, async_clie
             shares_sold = raw_making / 1_000_000.0 if raw_making > 1000 else raw_making
             
             log(f"✅ [LIVE] SELL FAK dispatched for {trade_id}. Received: ${usd_received:.4f} for {shares_sold:.4f} shares (waiting for Fill confirmation).")
+            asyncio.create_task(sync_live_balance())
         else:
             error_msg = str(sell_res).lower()
             if "no orders found to match" in error_msg:
@@ -548,6 +573,7 @@ def execute_trade(market_id, timeframe, strategy, direction, base_stake, price, 
         'market_id': market_id, 'timeframe': timeframe, 'symbol': symbol,
         'strategy': strategy, 'direction': direction, 
         'entry_price': price, 'entry_time': datetime.now().isoformat(),
+        'entry_time_ts': time.time(), 'last_bid_price': 0.0, 'ticks_down': 0,
         'shares': shares, 'invested': size_usd, 'clob_order_id': '', 'token_id': ''
     }
     
@@ -577,6 +603,13 @@ def close_trade(trade, close_price, reason):
     
     icon = "💰" if pnl > 0 else "🩸"
     log(f"{icon} [ID: {trade['short_id']:02d}] SELL {trade['symbol']} {trade['strategy']} [{trade['timeframe']}] ({trade['direction']}) | {reason} | PnL: ${pnl:+.2f}")
+    
+    if TRADING_MODE == 'live':
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(sync_live_balance())
+        except Exception:
+            pass
     
     TRADE_LOGS_BUFFER.append((
         trade['id'], trade['market_id'], f"{trade['symbol']}_{trade['timeframe']}",
@@ -660,6 +693,14 @@ async def binance_ws_listener():
                     if 'data' in data and 's' in data['data']:
                         pair = data['data']['s']
                         new_price = float(data['data']['c'])
+                        current_ts = asyncio.get_event_loop().time()
+                        
+                        # Momentum Rolling Window Update for Kinetic Sniper
+                        history = LOCAL_STATE['price_history'][pair]
+                        history.append((current_ts, new_price))
+                        while history and (current_ts - history[0][0]) > 1.0: # 1000ms window
+                            history.popleft()
+
                         if new_price != LOCAL_STATE['binance_live_price'].get(pair, 0.0):
                             LOCAL_STATE['prev_price'][pair] = LOCAL_STATE['binance_live_price'].get(pair, 0.0)
                             LOCAL_STATE['binance_live_price'][pair] = new_price
@@ -904,7 +945,6 @@ async def fetch_and_track_markets():
                             if is_clean_start:
                                 LOCAL_STATE['market_status'][timeframe_key] = "[ready to start]"
                             else:
-                                # POPRAWKA: Prawidłowy komunikat, bez 'OTM only'
                                 LOCAL_STATE['market_status'][timeframe_key] = "[paused] [waiting for next]"
                         else:
                             LOCAL_STATE['market_status'][timeframe_key] = "[running]"
@@ -918,7 +958,6 @@ async def fetch_and_track_markets():
                             log(f"⚡ [LOCAL ORACLE] Base definitively frozen at start: ${m_data['price']} for {slug}")
                             asyncio.create_task(calibrate_market_offset(m_id, m_data['price']))
                         else:
-                            # POPRAWKA: Zaostrzony komunikat w terminalu
                             log(f"⚠️ [LOCAL ORACLE] Mid-interval join. Base set to ${m_data['price']}. Trading strictly paused until next interval for {slug}")
 
                     if timeframe_key not in ACTIVE_MARKETS:
@@ -1003,7 +1042,6 @@ async def evaluate_strategies(trigger_source, pair_filter=None):
             is_paused = timeframe_key in LOCAL_STATE['paused_markets']
             
             live_p = LOCAL_STATE['binance_live_price'].get(pair, 0.0)
-            prev_p = LOCAL_STATE['prev_price'].get(pair, 0.0)
             
             if live_p == 0.0: continue
             
@@ -1032,26 +1070,52 @@ async def evaluate_strategies(trigger_source, pair_filter=None):
                 if current_bid <= 0.0: 
                     continue 
                 
-                if current_bid >= entry_p * TAKE_PROFIT_MULTIPLIER and trade['strategy'] != "OTM Bargain":
+                # Standard Take Profit (OTM Excluded)
+                if current_bid >= entry_p * TAKE_PROFIT_MULTIPLIER and trade['strategy'] != "OTM Bargain" and trade['strategy'] != "Kinetic Sniper":
                     close_trade(trade, current_bid, "Global Take Profit (+200%)")
                     continue
                 
+                # Expiry Safe Evac
                 if 0 < sec_left <= PROFIT_SECURE_SEC:
                     if current_bid > entry_p:
                         close_trade(trade, current_bid, f"Securing profits before expiry ({sec_left:.1f}s left)")
                     continue 
 
-                if trade['strategy'] == "Lag Sniper":
-                    if current_bid >= entry_p:
-                        if 'sl_countdown' in trade:
-                            del trade['sl_countdown']
-                            log(f"🔄 [ID: {trade['short_id']:02d}] Price recovered to entry. SL Countdown canceled.")
-                    elif current_bid <= entry_p * LAG_SNIPER_SL_DROP and 'sl_countdown' not in trade:
-                        trade['sl_countdown'] = time.time()
-                        log(f"⚠️ [ID: {trade['short_id']:02d}] Lag Sniper -10% drop. 10s countdown started.")
+                # 3-Phase Kinetic Sniper Protection
+                if trade['strategy'] == "Kinetic Sniper":
+                    pnl_ratio = current_bid / entry_p if entry_p > 0 else 0
                     
-                    if 'sl_countdown' in trade and (time.time() - trade['sl_countdown'] >= LAG_SNIPER_TIMEOUT):
-                        close_trade(trade, current_bid, f"Lag Sniper Timeout SL ({LAG_SNIPER_TIMEOUT}s)")
+                    # Phase 1: Hard PNL (+50%)
+                    if pnl_ratio >= 1.50:
+                        close_trade(trade, current_bid, "Kinetic TP (+50% PNL)")
+                        continue
+                        
+                    # Phase 2: Time-Decay Escape (Max 10s)
+                    time_held = time.time() - trade.get('entry_time_ts', time.time())
+                    if time_held >= 10.0 and current_bid > entry_p:
+                        close_trade(trade, current_bid, f"Time-Decay Escape ({time_held:.1f}s)")
+                        continue
+                        
+                    # Phase 3: Momentum Reversal (2 Ticks Down)
+                    last_bid = trade.get('last_bid_price', 0.0)
+                    if current_bid < last_bid and current_bid > entry_p:
+                        trade['ticks_down'] = trade.get('ticks_down', 0) + 1
+                    elif current_bid > last_bid:
+                        trade['ticks_down'] = 0
+                        
+                    trade['last_bid_price'] = current_bid
+                    
+                    if trade.get('ticks_down', 0) >= 2 and current_bid > entry_p:
+                        close_trade(trade, current_bid, "Momentum Reversal (2 Ticks Down)")
+                        continue
+
+                    # Fallback SL
+                    if current_bid <= entry_p * KINETIC_SNIPER_SL_DROP and 'sl_countdown' not in trade:
+                        trade['sl_countdown'] = time.time()
+                        log(f"⚠️ [ID: {trade['short_id']:02d}] Kinetic -10% drop. 10s countdown started.")
+                    
+                    if 'sl_countdown' in trade and (time.time() - trade['sl_countdown'] >= KINETIC_SNIPER_TIMEOUT):
+                        close_trade(trade, current_bid, f"Kinetic Timeout SL ({KINETIC_SNIPER_TIMEOUT}s)")
                         continue
 
             # =====================================================================
@@ -1074,7 +1138,6 @@ async def evaluate_strategies(trigger_source, pair_filter=None):
                 otm_cfg = config.get('otm', {})
                 otm_flag = f"otm_{m_id}"
                 
-                # ZABEZPIECZENIE: Całkowicie usunięty wytrych. Zwykły warunek "not is_paused".
                 if not is_paused and otm_cfg and otm_cfg.get('wr', 0.0) > 0.0 and otm_cfg.get('win_end', 0) <= sec_left <= otm_cfg.get('win_start', 0) and otm_flag not in EXECUTED_STRAT[m_id]:
                     if abs(adj_delta) < 40.0:
                         if 0 < b_up <= otm_cfg.get('max_p', 0):
@@ -1094,26 +1157,27 @@ async def evaluate_strategies(trigger_source, pair_filter=None):
                         execute_trade(m_id, timeframe, "1-Min Mom", "DOWN", 1.0, b_dn, symbol, mom_cfg.get('wr', 50.0), mom_cfg.get('id', ''))
                         EXECUTED_STRAT[m_id].append('momentum')
                         
-            # 4. Lag Sniper
+            # 4. Kinetic Sniper (Replaces Lag Sniper)
             if trigger_source == "BINANCE_TICK" and is_base_fetched and is_clean:
-                asset_jump = live_p - prev_p 
                 up_change = b_up - m_data['prev_up']
                 dn_change = b_dn - m_data['prev_dn']
                 
-                sniper_cfg = config.get('lag_sniper', {})
-                if not is_paused and sniper_cfg:
-                    end_time = sniper_cfg.get('end_time', sniper_cfg.get('czas_koncowki', 0))
-                    end_threshold = sniper_cfg.get('end_threshold', sniper_cfg.get('prog_koncowka', 0))
-                    base_threshold = sniper_cfg.get('base_threshold', sniper_cfg.get('prog_bazowy', 0))
-                    lag_tolerance = sniper_cfg.get('lag_tolerance', sniper_cfg.get('lag_tol', 0))
-                    max_price = sniper_cfg.get('max_price', sniper_cfg.get('max_cena', 0))
-
-                    prog = end_threshold if sec_left <= end_time else base_threshold
-                    if 10 < sec_left < timing['interval_s'] - 5:
-                        if asset_jump >= prog and abs(up_change) <= lag_tolerance and 0 < b_up <= max_price:
-                            execute_trade(m_id, timeframe, "Lag Sniper", "UP", 1.0, b_up, symbol, sniper_cfg.get('wr', 50.0), sniper_cfg.get('id', ''))
-                        elif asset_jump <= -prog and abs(dn_change) <= lag_tolerance and 0 < b_dn <= max_price:
-                            execute_trade(m_id, timeframe, "Lag Sniper", "DOWN", 1.0, b_dn, symbol, sniper_cfg.get('wr', 50.0), sniper_cfg.get('id', ''))
+                kin_cfg = config.get('kinetic_sniper', {})
+                if not is_paused and kin_cfg:
+                    trigger_pct = kin_cfg.get('trigger_pct', 0.0)
+                    max_price = kin_cfg.get('max_price', 0.85)
+                    max_slippage = kin_cfg.get('max_slippage', 0.025)
+                    
+                    history = LOCAL_STATE['price_history'].get(pair, deque())
+                    if len(history) >= 2:
+                        oldest_price = history[0][1]
+                        if oldest_price > 0:
+                            price_delta_pct = (live_p - oldest_price) / oldest_price
+                            
+                            if price_delta_pct >= trigger_pct and abs(up_change) <= max_slippage and 0 < b_up <= max_price:
+                                execute_trade(m_id, timeframe, "Kinetic Sniper", "UP", 1.0, b_up, symbol, kin_cfg.get('wr', 50.0), kin_cfg.get('id', ''))
+                            elif price_delta_pct <= -trigger_pct and abs(dn_change) <= max_slippage and 0 < b_dn <= max_price:
+                                execute_trade(m_id, timeframe, "Kinetic Sniper", "DOWN", 1.0, b_dn, symbol, kin_cfg.get('wr', 50.0), kin_cfg.get('id', ''))
                             
                 m_data['prev_up'], m_data['prev_dn'] = b_up, b_dn
     except Exception as e:
@@ -1149,6 +1213,14 @@ async def main():
             creds = await ASYNC_CLOB_CLIENT.init_creds()
             client.set_api_creds(creds)
             log("✅ Polymarket Live API Authorization Successful.")
+            try:
+                real_balance = await ASYNC_CLOB_CLIENT.get_collateral_balance()
+                if real_balance > 0:
+                    INITIAL_BALANCE = real_balance
+                    PORTFOLIO_BALANCE = real_balance
+                    log(f"💼 [LIVE] Wallet initialized. Starting Capital: ${real_balance:.2f} USDC")
+            except Exception as e:
+                log_error("Failed to fetch initial collateral. Using CLI param.", e)
         except Exception as e:
             log_error("CRITICAL: Polymarket API Auth Failed", e)
             os._exit(1)

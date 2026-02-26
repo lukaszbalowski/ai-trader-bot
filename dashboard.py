@@ -19,7 +19,14 @@ def render_dashboard(configs, state, active_markets, trades, live_data, balance,
     out.append(f"{BLD}{MAG}=== WATCHER v10.29 (LOCAL ORACLE & SAFE START) ==={RST}")
     out.append(f"{BLD}{CYN}--- MARKETS (LIVE) ---{RST}")
     
-    for cfg in configs:
+    def market_sort_key(cfg):
+        tf_order = {'1h': 0, '15m': 1, '5m': 2}
+        sym_order = {'XRP': 0, 'SOL': 1, 'ETH': 2, 'BTC': 3}
+        return (tf_order.get(cfg['timeframe'], 99), sym_order.get(cfg['symbol'], 99))
+        
+    sorted_configs = sorted(configs, key=market_sort_key)
+    
+    for cfg in sorted_configs:
         tk = f"{cfg['symbol']}_{cfg['timeframe']}"
         live_p = state['binance_live_price'].get(cfg['pair'], 0.0)
         adj_p = live_p + cfg['offset']
