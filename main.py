@@ -30,7 +30,7 @@ PROXY_WALLET_ADDRESS = os.getenv("PROXY_WALLET_ADDRESS")
 CHAIN_ID = int(os.getenv("CHAIN_ID", "137"))
 SIGNATURE_TYPE = int(os.getenv("SIGNATURE_TYPE", "1"))
 
-TRADING_MODE = 'paper' # Set dynamically via CLI
+TRADING_MODE = 'paper' 
 ASYNC_CLOB_CLIENT = None
 
 # ==========================================
@@ -44,11 +44,11 @@ MAX_MARKET_EXPOSURE = 0.15
 BURST_LIMIT_TRADES = 5         
 BURST_LIMIT_SEC = 10           
 
-# --- NEW MICRO-PROTECTION CONSTANTS ---
-PROFIT_SECURE_SEC = 3.0        # Secure profit if <= 3 seconds left
-TAKE_PROFIT_MULTIPLIER = 3.0   # 3.0x entry price = 200% PnL Profit
-KINETIC_SNIPER_SL_DROP = 0.90  # -10% drop activates countdown
-KINETIC_SNIPER_TIMEOUT = 10.0  # 10 seconds to recover or exit
+# --- MICRO-PROTECTION CONSTANTS ---
+PROFIT_SECURE_SEC = 3.0        
+TAKE_PROFIT_MULTIPLIER = 3.0   
+KINETIC_SNIPER_SL_DROP = 0.90  
+KINETIC_SNIPER_TIMEOUT = 10.0  
 
 SANITY_THRESHOLDS = {
     'BTC': 0.04, 'ETH': 0.05, 'SOL': 0.08, 'XRP': 0.15
@@ -82,7 +82,7 @@ initial_paused_markets = set([f"{cfg['symbol']}_{cfg['timeframe']}" for cfg in T
 
 LOCAL_STATE = {
     'binance_live_price': {cfg['pair']: 0.0 for cfg in TRACKED_CONFIGS},
-    'price_history': {cfg['pair']: deque() for cfg in TRACKED_CONFIGS}, # Rolling window for Kinetic Sniping
+    'price_history': {cfg['pair']: deque() for cfg in TRACKED_CONFIGS}, 
     'prev_price': {cfg['pair']: 0.0 for cfg in TRACKED_CONFIGS},
     'polymarket_books': {},
     'session_id': SESSION_ID,
@@ -92,11 +92,12 @@ LOCAL_STATE = {
 
 AVAILABLE_TRADE_IDS = list(range(100))
 LOCKED_PRICES = {}
-MARKET_CACHE = {}
+MARKET_CACHE = {} 
 PAPER_TRADES = []
 TRADE_HISTORY = []
 EXECUTED_STRAT = {}
 ACTIVE_MARKETS = {}
+PRE_WARMING_MARKETS = {}
 LIVE_MARKET_DATA = {}
 TRADE_TIMESTAMPS = {}
 
@@ -115,10 +116,6 @@ WS_SUBSCRIPTION_QUEUE = asyncio.Queue()
 # DATABASE EVENT WORKER (ZERO-BLOCKING)
 # ==========================================
 class TradeDatabaseWorker:
-    """
-    Handles background database updates specifically for Market Resolves and Post-Mortem.
-    Operates strictly via queue to preserve microsecond execution loops.
-    """
     def __init__(self):
         self.db_queue = asyncio.Queue()
 
@@ -178,7 +175,6 @@ class AsyncClobClient:
 
     async def execute_market_order(self, args: MarketOrderArgs):
         order = await asyncio.to_thread(self.client.create_market_order, args)
-        # Using FAK (Fill-And-Kill) for partial fills
         return await asyncio.to_thread(self.client.post_order, order, OrderType.FAK)
 
 # ==========================================
@@ -188,7 +184,7 @@ async def sync_live_balance():
     global PORTFOLIO_BALANCE
     if TRADING_MODE == 'live' and ASYNC_CLOB_CLIENT:
         try:
-            await asyncio.sleep(2.0) # Wait for settlement/execution finality before checking
+            await asyncio.sleep(2.0) 
             balance = await ASYNC_CLOB_CLIENT.get_collateral_balance()
             if balance > 0:
                 PORTFOLIO_BALANCE = balance
@@ -220,8 +216,8 @@ async def live_buy_worker(trade_id, token_id, size_usd, async_client: AsyncClobC
             rollback_failed_trade(trade_id)
             return
 
-        raw_taking = float(buy_res.get("takingAmount", 0)) # Received shares
-        raw_making = float(buy_res.get("makingAmount", 0)) # Spent USDC
+        raw_taking = float(buy_res.get("takingAmount", 0)) 
+        raw_making = float(buy_res.get("makingAmount", 0)) 
         
         shares_bought = raw_taking / 1_000_000.0 if raw_taking > 1000 else raw_taking
         usd_spent = raw_making / 1_000_000.0 if raw_making > 1000 else raw_making
@@ -231,15 +227,12 @@ async def live_buy_worker(trade_id, token_id, size_usd, async_client: AsyncClobC
             rollback_failed_trade(trade_id)
             return
 
-        # STATE SYNC
         global PORTFOLIO_BALANCE
         for trade in PAPER_TRADES:
             if trade['id'] == trade_id:
                 refund = trade['invested'] - usd_spent
                 trade['invested'] = usd_spent
                 trade['shares'] = shares_bought
-                
-                # Update precise entry price for Post-Mortem DB Integrity
                 trade['entry_price'] = usd_spent / shares_bought if shares_bought > 0 else trade['entry_price']
                 trade['clob_order_id'] = buy_res.get("orderID", "")
                 trade['token_id'] = token_id 
@@ -249,7 +242,7 @@ async def live_buy_worker(trade_id, token_id, size_usd, async_client: AsyncClobC
                     log(f"🔄 [LIVE] Partial Fill Sync! Refunded to portfolio: ${refund:.2f}")
                 break
                 
-        log(f"✅ [LIVE] BUY matched for {trade_id}. Bought: {shares_bought:.4f} shares for ${usd_spent:.4f} (waiting for Fill confirmation)")
+        log(f"✅ [LIVE] BUY matched for {trade_id}. Bought: {shares_bought:.4f} shares for ${usd_spent:.4f}")
         asyncio.create_task(sync_live_balance())
 
     except Exception as e:
@@ -298,7 +291,7 @@ async def live_sell_worker(trade_id, token_id, expected_gross_shares, async_clie
             usd_received = raw_taking / 1_000_000.0 if raw_taking > 1000 else raw_taking
             shares_sold = raw_making / 1_000_000.0 if raw_making > 1000 else raw_making
             
-            log(f"✅ [LIVE] SELL FAK dispatched for {trade_id}. Received: ${usd_received:.4f} for {shares_sold:.4f} shares (waiting for Fill confirmation).")
+            log(f"✅ [LIVE] SELL FAK dispatched for {trade_id}. Received: ${usd_received:.4f} for {shares_sold:.4f} shares.")
             asyncio.create_task(sync_live_balance())
         else:
             error_msg = str(sell_res).lower()
@@ -358,6 +351,7 @@ def perform_tech_dump():
             "locked_prices": LOCKED_PRICES,
             "market_cache": MARKET_CACHE,
             "active_markets": ACTIVE_MARKETS,
+            "pre_warming_markets": PRE_WARMING_MARKETS,
             "live_market_data": LIVE_MARKET_DATA,
             "paper_trades": PAPER_TRADES,
             "binance_live": LOCAL_STATE['binance_live_price']
@@ -372,9 +366,6 @@ def perform_tech_dump():
     except Exception as e:
         log_error("Tech Dump Error", e)
 
-# ==========================================
-# 0.1 MANUAL CONTROLS HELPERS
-# ==========================================
 def get_market_tf_key_by_ui(ui_key):
     for cfg in TRACKED_CONFIGS:
         if cfg['ui_key'] == ui_key:
@@ -539,10 +530,6 @@ async def liquidate_all_and_quit():
 # 3. TRADING LOGIC
 # ==========================================
 def calculate_dynamic_size(base_stake, win_rate, market_id):
-    """
-    TEMPORARY OVERRIDE FOR LIVE TESTING:
-    Dynamic Kelly Sizing disabled. All stakes are safely hardcoded to exactly $1.0
-    """
     return 1.0
 
 def execute_trade(market_id, timeframe, strategy, direction, base_stake, price, symbol, win_rate, strat_id=""):
@@ -584,10 +571,8 @@ def execute_trade(market_id, timeframe, strategy, direction, base_stake, price, 
 
     if TRADING_MODE == 'live' and ASYNC_CLOB_CLIENT:
         token_id = None
-        for cache in MARKET_CACHE.values():
-            if cache['id'] == market_id:
-                token_id = cache['up_id'] if direction == 'UP' else cache['dn_id']
-                break
+        if market_id in MARKET_CACHE:
+            token_id = MARKET_CACHE[market_id]['up_id'] if direction == 'UP' else MARKET_CACHE[market_id]['dn_id']
         if token_id:
             asyncio.create_task(live_buy_worker(trade_id, token_id, size_usd, ASYNC_CLOB_CLIENT))
 
@@ -617,12 +602,10 @@ def close_trade(trade, close_price, reason):
         trade['entry_price'], trade['entry_time'], close_price, datetime.now().isoformat(), pnl, reason, SESSION_ID
     ))
 
-    if TRADING_MODE == 'live' and ASYNC_CLOB_CLIENT and "Oracle Settlement" not in reason and "Rozliczenie" not in reason:
+    if TRADING_MODE == 'live' and ASYNC_CLOB_CLIENT and "Oracle Settlement" not in reason and "RESOLVED" not in reason:
         token_id = None
-        for cache in MARKET_CACHE.values():
-            if cache['id'] == trade['market_id']:
-                token_id = cache['up_id'] if trade['direction'] == 'UP' else cache['dn_id']
-                break
+        if trade['market_id'] in MARKET_CACHE:
+            token_id = MARKET_CACHE[trade['market_id']]['up_id'] if trade['direction'] == 'UP' else MARKET_CACHE[trade['market_id']]['dn_id']
         if token_id:
             asyncio.create_task(live_sell_worker(trade['id'], token_id, trade['shares'], ASYNC_CLOB_CLIENT))
 
@@ -653,16 +636,11 @@ def extract_orderbook_metrics(token_id):
     return best_ask, best_ask_vol, best_bid, best_bid_vol, obi
 
 def get_symbol_by_market_id(market_id: str):
-    for cache in MARKET_CACHE.values():
-        if cache['id'] == market_id:
-            return cache.get('config', {}).get('symbol', '')
+    if market_id in MARKET_CACHE:
+        return MARKET_CACHE[market_id].get('config', {}).get('symbol', '')
     return ""
 
 async def calibrate_market_offset(market_id: str, strike_price: float):
-    """
-    Calculates the delta between Binance Spot and Polymarket Oracle (Strike).
-    This eliminates 'Basis Risk' where prices differ by tens of dollars.
-    """
     symbol = get_symbol_by_market_id(market_id)
     if not symbol: return
     pair = f"{symbol}USDT"
@@ -675,7 +653,6 @@ async def calibrate_market_offset(market_id: str, strike_price: float):
         if market_id in LOCKED_PRICES:
             LOCKED_PRICES[market_id]['offset'] = calculated_offset
             log(f"🎯 [CALIBRATION] Basis Locked! Symbol: {symbol}, Offset: {calculated_offset:.2f} USD")
-            log(f"📊 Binance: {binance_spot} | Strike: {strike_price}")
 
 # ==========================================
 # 4. WEBSOCKETS (BINANCE & CLOB)
@@ -695,10 +672,9 @@ async def binance_ws_listener():
                         new_price = float(data['data']['c'])
                         current_ts = asyncio.get_event_loop().time()
                         
-                        # Momentum Rolling Window Update for Kinetic Sniper
                         history = LOCAL_STATE['price_history'][pair]
                         history.append((current_ts, new_price))
-                        while history and (current_ts - history[0][0]) > 1.0: # 1000ms window
+                        while history and (current_ts - history[0][0]) > 1.0: 
                             history.popleft()
 
                         if new_price != LOCAL_STATE['binance_live_price'].get(pair, 0.0):
@@ -834,7 +810,6 @@ async def user_ws_listener():
                                     
                                 exact_price = float(data.get('price', 0))
                                 ts_sec = float(data.get('timestamp', 0))
-                                
                                 taker_order_id = data.get('taker_order_id')
                                 
                                 for trade in PAPER_TRADES:
@@ -854,7 +829,7 @@ async def user_ws_listener():
             await asyncio.sleep(2)
 
 # ==========================================
-# 5. MARKET STATE MANAGER (LOCAL ORACLE)
+# 5. MARKET STATE MANAGER (PARALLEL FULL FIX)
 # ==========================================
 async def fetch_and_track_markets():
     tz_et = pytz.timezone('America/New_York')
@@ -873,140 +848,170 @@ async def fetch_and_track_markets():
                     current_base_ts = (now_ts // interval_s) * interval_s
                     sec_since_start = now_ts - current_base_ts
                     sec_left = interval_s - sec_since_start
-                    
-                    if sec_left <= 15:
-                        target_base_ts = current_base_ts + interval_s
-                        is_pre_warming = True
-                    else:
-                        target_base_ts = current_base_ts
-                        is_pre_warming = False
-                        
-                    start_time = datetime.fromtimestamp(target_base_ts, tz_et)
-                    
-                    slug_standard = f"{config['symbol'].lower()}-updown-{config['timeframe']}-{target_base_ts}"
-                    month_name = start_time.strftime('%B').lower()
-                    day = start_time.strftime('%-d')
-                    hour_str = start_time.strftime('%-I%p').lower()
-                    coin_name = FULL_NAMES.get(config['symbol'], config['symbol'].lower())
-                    slug_seo = f"{coin_name}-up-or-down-{month_name}-{day}-{hour_str}-et"
-                    
-                    candidate_slugs = [slug_standard, slug_seo]
-                    active_slug = None
-                    
-                    for candidate in candidate_slugs:
-                        if candidate in MARKET_CACHE:
-                            active_slug = candidate
-                            break
-                        
-                        async with session.get(f"https://gamma-api.polymarket.com/events?slug={candidate}") as resp:
-                            if resp.status == 200:
-                                res = await resp.json()
-                                if res and len(res) > 0 and 'markets' in res[0]:
-                                    for m in res[0]['markets']:
-                                        q_text = m.get('question', '').lower().replace(' ', '')
-                                        time_str = start_time.strftime('%-I:%M%p').lower()
-                                        time_str_alt = start_time.strftime('%-I%p').lower()
-                                        
-                                        if m.get('active') and (time_str in q_text or time_str_alt in q_text):
-                                            outcomes = eval(m.get('outcomes', '[]'))
-                                            clob_ids = eval(m.get('clobTokenIds', '[]'))
-                                            
-                                            MARKET_CACHE[candidate] = {
-                                                'id': str(m.get('id')), 
-                                                'up_id': clob_ids[outcomes.index("Up")], 
-                                                'dn_id': clob_ids[outcomes.index("Down")], 
-                                                'config': config
-                                            }
-                                            
-                                            await WS_SUBSCRIPTION_QUEUE.put([clob_ids[0], clob_ids[1]])
-                                            active_slug = candidate
-                                            if is_pre_warming:
-                                                log(f"🔥 [PRE-WARMING] Subscribed to market {config['symbol']} {config['timeframe']} before its opening!")
-                                            break
-                        if active_slug:
-                            break
-                                            
-                    if not active_slug: continue
-                    slug = active_slug
-                    m_id = MARKET_CACHE[slug]['id']
-                    
                     timeframe_key = f"{config['symbol']}_{config['timeframe']}"
-                    
-                    if m_id not in LOCKED_PRICES:
-                        is_clean_start = is_pre_warming or (sec_since_start <= 15)
-                        LOCKED_PRICES[m_id] = {
-                            'price': live_p, 
-                            'base_fetched': False, 
-                            'last_retry': 0, 'prev_up': 0, 'prev_dn': 0,
-                            'is_clean': is_clean_start
-                        }
-                        
-                        if timeframe_key in LOCAL_STATE['paused_markets']:
-                            if is_clean_start:
-                                LOCAL_STATE['market_status'][timeframe_key] = "[ready to start]"
-                            else:
-                                LOCAL_STATE['market_status'][timeframe_key] = "[paused] [waiting for next]"
-                        else:
-                            LOCAL_STATE['market_status'][timeframe_key] = "[running]"
-                    
-                    m_data = LOCKED_PRICES[m_id]
 
-                    if not m_data['base_fetched'] and not is_pre_warming:
-                        m_data['price'] = live_p
-                        m_data['base_fetched'] = True
-                        if m_data.get('is_clean', False):
-                            log(f"⚡ [LOCAL ORACLE] Base definitively frozen at start: ${m_data['price']} for {slug}")
-                            asyncio.create_task(calibrate_market_offset(m_id, m_data['price']))
-                        else:
-                            log(f"⚠️ [LOCAL ORACLE] Mid-interval join. Base set to ${m_data['price']}. Trading strictly paused until next interval for {slug}")
+                    # --- 1. CLOCK UPDATE & EXPIRATION LOGIC (ACTIVE) ---
+                    if timeframe_key in ACTIVE_MARKETS:
+                        a_m_id = ACTIVE_MARKETS[timeframe_key]['m_id']
+                        a_m_expire_ts = ACTIVE_MARKETS[timeframe_key].get('expire_ts', 0)
 
-                    if timeframe_key not in ACTIVE_MARKETS:
-                        ACTIVE_MARKETS[timeframe_key] = {'m_id': m_id, 'target': m_data['price']}
-                    elif ACTIVE_MARKETS[timeframe_key]['m_id'] != m_id:
-                        old_m_id = ACTIVE_MARKETS[timeframe_key]['m_id']
-                        if not is_pre_warming:
+                        # CRITICAL ROTATION FIX: Compare absolute timestamp instead of oscillating sec_left
+                        if now_ts >= a_m_expire_ts:
+                            old_target = ACTIVE_MARKETS[timeframe_key]['target']
+                            adjusted_final_price = live_p - LOCKED_PRICES.get(a_m_id, {}).get('offset', 0.0)
+
                             if TRADING_MODE == 'live':
-                                log(f"🔔 MARKET CLOSED [{timeframe_key}]. Waiting for official settlement from Polymarket.")
+                                log(f"🔔 MARKET EXPIRED [{timeframe_key}]. Waiting for official settlement.")
                             else:
-                                old_target = ACTIVE_MARKETS[timeframe_key]['target']
-                                adjusted_final_price = live_p + config['offset']
-                                log(f"🔔 MARKET CLOSED [{timeframe_key}]. Resolving (Simulated)...")
-                                resolve_market(old_m_id, adjusted_final_price, old_target)
-                            
-                            ACTIVE_MARKETS[timeframe_key] = {'m_id': m_id, 'target': m_data['price']}
-                            LOCAL_STATE.pop(f'timing_{old_m_id}', None)
-                            LIVE_MARKET_DATA.pop(old_m_id, None)
-                            LOCKED_PRICES.pop(old_m_id, None)
-                    else:
-                        ACTIVE_MARKETS[timeframe_key]['target'] = m_data['price']
-                        
-                    local_sec_since_start = now_ts - target_base_ts
-                    local_sec_left = interval_s - local_sec_since_start
-                    
-                    LOCAL_STATE[f'timing_{m_id}'] = {
-                        'sec_left': local_sec_left, 'sec_since_start': local_sec_since_start,
-                        'interval_s': interval_s, 'timeframe': config['timeframe'],
-                        'symbol': config['symbol'], 'pair': pair,
-                        'm_data': m_data, 'config': config,
-                        'is_pre_warming': is_pre_warming
-                    }
-                    
-                    up_id = MARKET_CACHE[slug]['up_id']
-                    dn_id = MARKET_CACHE[slug]['dn_id']
-                    s_up, s_up_vol, b_up, b_up_vol, up_obi = extract_orderbook_metrics(up_id)
-                    s_dn, s_dn_vol, b_dn, b_dn_vol, dn_obi = extract_orderbook_metrics(dn_id)
-                    
-                    LIVE_MARKET_DATA[m_id] = {'UP_BID': s_up, 'DOWN_BID': s_dn}
-                    current_offset = m_data.get('offset', 0.0)
-                    adjusted_live_p = live_p - current_offset
-                    
-                    if not is_pre_warming:
-                        MARKET_LOGS_BUFFER.append((
-                            f"{config['symbol']}_{config['timeframe']}", m_id, m_data['price'],
-                            adjusted_live_p, b_up, b_up_vol, s_up, s_up_vol, up_obi,
-                            b_dn, b_dn_vol, s_dn, s_dn_vol, dn_obi,
-                            datetime.now().isoformat(), SESSION_ID
-                        ))
+                                log(f"🔔 MARKET EXPIRED [{timeframe_key}]. Resolving (Simulated)...")
+                                resolve_market(a_m_id, adjusted_final_price, old_target)
+
+                            LOCAL_STATE.pop(f'timing_{a_m_id}', None)
+                            LIVE_MARKET_DATA.pop(a_m_id, None)
+                            LOCKED_PRICES.pop(a_m_id, None)
+                            MARKET_CACHE.pop(a_m_id, None)
+
+                            if timeframe_key in PRE_WARMING_MARKETS:
+                                pw_m_id = PRE_WARMING_MARKETS[timeframe_key]['m_id']
+                                ACTIVE_MARKETS[timeframe_key] = PRE_WARMING_MARKETS[timeframe_key]
+                                del PRE_WARMING_MARKETS[timeframe_key]
+
+                                if f'timing_{pw_m_id}' in LOCAL_STATE:
+                                    LOCAL_STATE[f'timing_{pw_m_id}']['is_pre_warming'] = False
+
+                                if timeframe_key in LOCAL_STATE['paused_markets']:
+                                    LOCAL_STATE['paused_markets'].remove(timeframe_key)
+                                LOCAL_STATE['market_status'][timeframe_key] = "[running]"
+                            else:
+                                del ACTIVE_MARKETS[timeframe_key]
+                                LOCAL_STATE['paused_markets'].add(timeframe_key)
+                                LOCAL_STATE['market_status'][timeframe_key] = "[paused] [searching next]"
+
+                    # --- 2. API FETCHING LOGIC ---
+                    is_pre_warming_phase = (sec_left <= 60) and (sec_left > 0)
+                    target_base_ts = current_base_ts + interval_s if is_pre_warming_phase else current_base_ts
+
+                    needs_active_fetch = (timeframe_key not in ACTIVE_MARKETS) and (sec_left > 0)
+                    needs_pw_fetch = is_pre_warming_phase and (timeframe_key not in PRE_WARMING_MARKETS)
+
+                    target_ts_to_fetch = None
+                    if needs_active_fetch:
+                        target_ts_to_fetch = current_base_ts
+                        is_fetching_pw = False
+                    elif needs_pw_fetch:
+                        target_ts_to_fetch = target_base_ts
+                        is_fetching_pw = True
+
+                    if target_ts_to_fetch is not None:
+                        start_time = datetime.fromtimestamp(target_ts_to_fetch, tz_et)
+                        slug_standard = f"{config['symbol'].lower()}-updown-{config['timeframe']}-{target_ts_to_fetch}"
+                        candidate_slugs = [slug_standard]
+
+                        if config['timeframe'] == '1h':
+                            month_name = start_time.strftime('%B').lower()
+                            day = start_time.strftime('%-d')
+                            hour_str = start_time.strftime('%-I%p').lower()
+                            coin_name = FULL_NAMES.get(config['symbol'], config['symbol'].lower())
+                            candidate_slugs.append(f"{coin_name}-up-or-down-{month_name}-{day}-{hour_str}-et")
+
+                        active_slug = None
+                        fetched_m_id = None
+
+                        for candidate in candidate_slugs:
+                            async with session.get(f"https://gamma-api.polymarket.com/events?slug={candidate}") as resp:
+                                if resp.status == 200:
+                                    res = await resp.json()
+                                    if res and len(res) > 0 and 'markets' in res[0]:
+                                        for m in res[0]['markets']:
+                                            q_text = m.get('question', '').lower().replace(' ', '')
+                                            time_str = start_time.strftime('%-I:%M%p').lower()
+                                            time_str_alt = start_time.strftime('%-I%p').lower()
+
+                                            if m.get('active') and (time_str in q_text or time_str_alt in q_text):
+                                                outcomes = eval(m.get('outcomes', '[]'))
+                                                clob_ids = eval(m.get('clobTokenIds', '[]'))
+                                                fetched_m_id = str(m.get('id'))
+
+                                                MARKET_CACHE[fetched_m_id] = {
+                                                    'id': fetched_m_id,
+                                                    'up_id': clob_ids[outcomes.index("Up")],
+                                                    'dn_id': clob_ids[outcomes.index("Down")],
+                                                    'config': config,
+                                                    'target_base_ts': target_ts_to_fetch,
+                                                    'slug': candidate
+                                                }
+
+                                                await WS_SUBSCRIPTION_QUEUE.put([clob_ids[0], clob_ids[1]])
+                                                active_slug = candidate
+                                                break
+                            if active_slug:
+                                break
+
+                        if fetched_m_id:
+                            is_clean_start = is_fetching_pw or (sec_since_start <= 15)
+                            LOCKED_PRICES[fetched_m_id] = {
+                                'price': live_p, 'base_fetched': True,
+                                'last_retry': 0, 'prev_up': 0, 'prev_dn': 0,
+                                'is_clean': is_clean_start, 'offset': 0.0
+                            }
+
+                            if is_clean_start:
+                                log(f"⚡ [LOCAL ORACLE] Base definitively frozen at start: ${live_p} for {active_slug}")
+                                asyncio.create_task(calibrate_market_offset(fetched_m_id, live_p))
+                            else:
+                                log(f"⚠️ [LOCAL ORACLE] Mid-interval join. Base set to ${live_p}. Trading paused until next interval for {active_slug}")
+                                if timeframe_key not in LOCAL_STATE['paused_markets']:
+                                     LOCAL_STATE['paused_markets'].add(timeframe_key)
+
+                            if is_fetching_pw:
+                                PRE_WARMING_MARKETS[timeframe_key] = {'m_id': fetched_m_id, 'target': live_p, 'expire_ts': target_ts_to_fetch + interval_s}
+                                log(f"🔥 [PRE-WARMING] Subscribed to incoming market {config['symbol']} {config['timeframe']} before opening!")
+                            else:
+                                ACTIVE_MARKETS[timeframe_key] = {'m_id': fetched_m_id, 'target': live_p, 'expire_ts': target_ts_to_fetch + interval_s}
+                                if is_clean_start:
+                                    if timeframe_key in LOCAL_STATE['paused_markets']:
+                                        LOCAL_STATE['paused_markets'].remove(timeframe_key)
+                                    LOCAL_STATE['market_status'][timeframe_key] = "[running]"
+                                else:
+                                    LOCAL_STATE['market_status'][timeframe_key] = "[paused] [waiting for next]"
+
+                    # --- 3. TIMING & STATE UPDATES FOR ENGINE ---
+                    for state_dict, is_pw in [(ACTIVE_MARKETS, False), (PRE_WARMING_MARKETS, True)]:
+                        if timeframe_key in state_dict:
+                            m_id = state_dict[timeframe_key]['m_id']
+                            m_data = LOCKED_PRICES.get(m_id, {})
+
+                            # Absolute time tracking based on the market's true expiration timestamp
+                            m_expire_ts = state_dict[timeframe_key].get('expire_ts', current_base_ts + interval_s)
+                            m_start_ts = m_expire_ts - interval_s
+                            m_sec_since_start = now_ts - m_start_ts
+                            m_sec_left = interval_s - m_sec_since_start
+
+                            LOCAL_STATE[f'timing_{m_id}'] = {
+                                'sec_left': m_sec_left, 'sec_since_start': m_sec_since_start,
+                                'interval_s': interval_s, 'timeframe': config['timeframe'],
+                                'symbol': config['symbol'], 'pair': pair,
+                                'm_data': m_data, 'config': config,
+                                'is_pre_warming': is_pw
+                            }
+
+                            if not is_pw and m_id in MARKET_CACHE:
+                                up_id = MARKET_CACHE[m_id]['up_id']
+                                dn_id = MARKET_CACHE[m_id]['dn_id']
+                                s_up, s_up_vol, b_up, b_up_vol, up_obi = extract_orderbook_metrics(up_id)
+                                s_dn, s_dn_vol, b_dn, b_dn_vol, dn_obi = extract_orderbook_metrics(dn_id)
+
+                                LIVE_MARKET_DATA[m_id] = {'UP_BID': s_up, 'DOWN_BID': s_dn}
+                                current_offset = m_data.get('offset', 0.0)
+                                adjusted_live_p = live_p - current_offset
+
+                                MARKET_LOGS_BUFFER.append((
+                                    f"{config['symbol']}_{config['timeframe']}", m_id, m_data.get('price', 0.0),
+                                    adjusted_live_p, b_up, b_up_vol, s_up, s_up_vol, up_obi,
+                                    b_dn, b_dn_vol, s_dn, s_dn_vol, dn_obi,
+                                    datetime.now().isoformat(), SESSION_ID
+                                ))
+
             except Exception as e:
                 log_error("Market State Manager", e)
             await asyncio.sleep(CHECK_INTERVAL)
@@ -1016,8 +1021,7 @@ async def fetch_and_track_markets():
 # ==========================================
 async def evaluate_strategies(trigger_source, pair_filter=None):
     try:
-        for slug, cache in MARKET_CACHE.items():
-            m_id = cache['id']
+        for m_id, cache in MARKET_CACHE.items():
             if f'timing_{m_id}' not in LOCAL_STATE: continue
             timing = LOCAL_STATE[f'timing_{m_id}']
             
@@ -1056,9 +1060,6 @@ async def evaluate_strategies(trigger_source, pair_filter=None):
             s_up, _, b_up, _, _ = extract_orderbook_metrics(cache['up_id'])
             s_dn, _, b_dn, _, _ = extract_orderbook_metrics(cache['dn_id'])
             
-            # For data logging we log the adjusted synthetic price
-            adjusted_live_p = synthetic_oracle_price
-            
             # =====================================================================
             # MICRO-PROTECTION ENGINE
             # =====================================================================
@@ -1070,33 +1071,30 @@ async def evaluate_strategies(trigger_source, pair_filter=None):
                 if current_bid <= 0.0: 
                     continue 
                 
-                # Standard Take Profit (OTM Excluded)
+                # Standard Take Profit 
                 if current_bid >= entry_p * TAKE_PROFIT_MULTIPLIER and trade['strategy'] != "OTM Bargain" and trade['strategy'] != "Kinetic Sniper":
                     close_trade(trade, current_bid, "Global Take Profit (+200%)")
                     continue
                 
-                # Expiry Safe Evac
+                # Expiry Safe Evac 
                 if 0 < sec_left <= PROFIT_SECURE_SEC:
                     if current_bid > entry_p:
                         close_trade(trade, current_bid, f"Securing profits before expiry ({sec_left:.1f}s left)")
                     continue 
 
-                # 3-Phase Kinetic Sniper Protection
+                # Kinetic Sniper Protection
                 if trade['strategy'] == "Kinetic Sniper":
                     pnl_ratio = current_bid / entry_p if entry_p > 0 else 0
                     
-                    # Phase 1: Hard PNL (+50%)
                     if pnl_ratio >= 1.50:
                         close_trade(trade, current_bid, "Kinetic TP (+50% PNL)")
                         continue
                         
-                    # Phase 2: Time-Decay Escape (Max 10s)
                     time_held = time.time() - trade.get('entry_time_ts', time.time())
                     if time_held >= 10.0 and current_bid > entry_p:
                         close_trade(trade, current_bid, f"Time-Decay Escape ({time_held:.1f}s)")
                         continue
                         
-                    # Phase 3: Momentum Reversal (2 Ticks Down)
                     last_bid = trade.get('last_bid_price', 0.0)
                     if current_bid < last_bid and current_bid > entry_p:
                         trade['ticks_down'] = trade.get('ticks_down', 0) + 1
@@ -1109,7 +1107,6 @@ async def evaluate_strategies(trigger_source, pair_filter=None):
                         close_trade(trade, current_bid, "Momentum Reversal (2 Ticks Down)")
                         continue
 
-                    # Fallback SL
                     if current_bid <= entry_p * KINETIC_SNIPER_SL_DROP and 'sl_countdown' not in trade:
                         trade['sl_countdown'] = time.time()
                         log(f"⚠️ [ID: {trade['short_id']:02d}] Kinetic -10% drop. 10s countdown started.")
@@ -1123,7 +1120,6 @@ async def evaluate_strategies(trigger_source, pair_filter=None):
             # =====================================================================        
             if is_base_fetched:
                 
-                # 1. Mid-Game Arb 
                 m_cfg = config.get('mid_arb', {})
                 mid_arb_flag = f"mid_arb_{m_id}"
                 if not is_paused and m_cfg and is_clean and m_cfg.get('win_end', 0) < sec_left < m_cfg.get('win_start', 0) and mid_arb_flag not in EXECUTED_STRAT[m_id]:
@@ -1134,10 +1130,8 @@ async def evaluate_strategies(trigger_source, pair_filter=None):
                         execute_trade(m_id, timeframe, "Mid-Game Arb", "DOWN", 1.0, b_dn, symbol, m_cfg.get('wr', 50.0), m_cfg.get('id', ''))
                         EXECUTED_STRAT[m_id].append(mid_arb_flag)
                         
-                # 2. OTM Bargain 
                 otm_cfg = config.get('otm', {})
                 otm_flag = f"otm_{m_id}"
-                
                 if not is_paused and otm_cfg and otm_cfg.get('wr', 0.0) > 0.0 and otm_cfg.get('win_end', 0) <= sec_left <= otm_cfg.get('win_start', 0) and otm_flag not in EXECUTED_STRAT[m_id]:
                     if abs(adj_delta) < 40.0:
                         if 0 < b_up <= otm_cfg.get('max_p', 0):
@@ -1147,38 +1141,39 @@ async def evaluate_strategies(trigger_source, pair_filter=None):
                             execute_trade(m_id, timeframe, "OTM Bargain", "DOWN", 1.0, b_dn, symbol, otm_cfg.get('wr', 50.0), otm_cfg.get('id', ''))
                             EXECUTED_STRAT[m_id].append(otm_flag)
                             
-                # 3. Momentum
                 mom_cfg = config.get('momentum', {})
                 if not is_paused and mom_cfg and is_clean and mom_cfg.get('win_end', 0) <= sec_left <= mom_cfg.get('win_start', 0) and 'momentum' not in EXECUTED_STRAT[m_id]:
-                    if adj_delta >= mom_cfg.get('delta', 0) and 0 < b_up <= mom_cfg.get('max_p', 0):
+                    if adj_delta >= mom_cfg.get('delta', 0) and 0 < b_up <= m_cfg.get('max_p', 0):
                         execute_trade(m_id, timeframe, "1-Min Mom", "UP", 1.0, b_up, symbol, mom_cfg.get('wr', 50.0), mom_cfg.get('id', ''))
                         EXECUTED_STRAT[m_id].append('momentum')
                     elif adj_delta <= -mom_cfg.get('delta', 0) and 0 < b_dn <= mom_cfg.get('max_p', 0):
                         execute_trade(m_id, timeframe, "1-Min Mom", "DOWN", 1.0, b_dn, symbol, mom_cfg.get('wr', 50.0), mom_cfg.get('id', ''))
                         EXECUTED_STRAT[m_id].append('momentum')
                         
-            # 4. Kinetic Sniper (Replaces Lag Sniper)
             if trigger_source == "BINANCE_TICK" and is_base_fetched and is_clean:
                 up_change = b_up - m_data['prev_up']
                 dn_change = b_dn - m_data['prev_dn']
                 
                 kin_cfg = config.get('kinetic_sniper', {})
                 if not is_paused and kin_cfg:
-                    trigger_pct = kin_cfg.get('trigger_pct', 0.0)
-                    max_price = kin_cfg.get('max_price', 0.85)
-                    max_slippage = kin_cfg.get('max_slippage', 0.025)
+                    max_target_dist = kin_cfg.get('max_target_dist', float('inf'))
                     
-                    history = LOCAL_STATE['price_history'].get(pair, deque())
-                    if len(history) >= 2:
-                        oldest_price = history[0][1]
-                        if oldest_price > 0:
-                            price_delta_pct = (live_p - oldest_price) / oldest_price
-                            
-                            if price_delta_pct >= trigger_pct and abs(up_change) <= max_slippage and 0 < b_up <= max_price:
-                                execute_trade(m_id, timeframe, "Kinetic Sniper", "UP", 1.0, b_up, symbol, kin_cfg.get('wr', 50.0), kin_cfg.get('id', ''))
-                            elif price_delta_pct <= -trigger_pct and abs(dn_change) <= max_slippage and 0 < b_dn <= max_price:
-                                execute_trade(m_id, timeframe, "Kinetic Sniper", "DOWN", 1.0, b_dn, symbol, kin_cfg.get('wr', 50.0), kin_cfg.get('id', ''))
-                            
+                    if abs(adj_delta) <= max_target_dist:
+                        trigger_pct = kin_cfg.get('trigger_pct', 0.0)
+                        max_price = kin_cfg.get('max_price', 0.85)
+                        max_slippage = kin_cfg.get('max_slippage', 0.025)
+                        
+                        history = LOCAL_STATE['price_history'].get(pair, deque())
+                        if len(history) >= 2:
+                            oldest_price = history[0][1]
+                            if oldest_price > 0:
+                                price_delta_pct = (live_p - oldest_price) / oldest_price
+                                
+                                if price_delta_pct >= trigger_pct and abs(up_change) <= max_slippage and 0 < b_up <= max_price:
+                                    execute_trade(m_id, timeframe, "Kinetic Sniper", "UP", 1.0, b_up, symbol, kin_cfg.get('wr', 50.0), kin_cfg.get('id', ''))
+                                elif price_delta_pct <= -trigger_pct and abs(dn_change) <= max_slippage and 0 < b_dn <= max_price:
+                                    execute_trade(m_id, timeframe, "Kinetic Sniper", "DOWN", 1.0, b_dn, symbol, kin_cfg.get('wr', 50.0), kin_cfg.get('id', ''))
+                                
                 m_data['prev_up'], m_data['prev_dn'] = b_up, b_dn
     except Exception as e:
         log_error("Strategy Engine", e)
@@ -1191,7 +1186,7 @@ async def main():
     
     parser = argparse.ArgumentParser()
     parser.add_argument('--portfolio', type=float, default=100.0)
-    parser.add_argument('--mode', type=str, choices=['paper', 'live'], default='paper', help="Trading mode: paper or live")
+    parser.add_argument('--mode', type=str, choices=['paper', 'live'], default='paper')
     args = parser.parse_args()
     
     INITIAL_BALANCE = args.portfolio
@@ -1200,8 +1195,7 @@ async def main():
     TRADING_MODE = args.mode
     
     log(f"🚀 LOCAL ORACLE SYSTEM INITIALIZATION. Session ID: {SESSION_ID}")
-    log(f"⚙️ OPERATING MODE: [{TRADING_MODE.upper()}] (ALL STAKES LOCKED TO $1.0)")
-
+    
     if TRADING_MODE == 'live':
         log("🔌 LIVE MODE INITIALIZED. Connecting to Polymarket API...")
         try:
