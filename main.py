@@ -49,6 +49,7 @@ PROFIT_SECURE_SEC = 3.0
 TAKE_PROFIT_MULTIPLIER = 3.0   
 KINETIC_SNIPER_SL_DROP = 0.90  
 KINETIC_SNIPER_TIMEOUT = 10.0  
+LOSS_RECOVERY_TIMEOUT = 10.0
 
 SANITY_THRESHOLDS = {
     'BTC': 0.04, 'ETH': 0.05, 'SOL': 0.08, 'XRP': 0.15
@@ -200,6 +201,78 @@ def rollback_failed_trade(trade_id):
             PAPER_TRADES.remove(t)
             break
 
+def get_trade_by_id(trade_id):
+    for trade in PAPER_TRADES:
+        if trade['id'] == trade_id:
+            return trade
+    return None
+
+def get_trade_token_id(trade):
+    token_id = trade.get('token_id')
+    if token_id:
+        return token_id
+    market_id = trade.get('market_id')
+    if market_id in MARKET_CACHE:
+        return MARKET_CACHE[market_id]['up_id'] if trade['direction'] == 'UP' else MARKET_CACHE[market_id]['dn_id']
+    return None
+
+def has_open_trades_for_market(market_id):
+    return any(trade.get('market_id') == market_id for trade in PAPER_TRADES)
+
+def cleanup_market_state_if_unused(market_id):
+    if has_open_trades_for_market(market_id):
+        return
+    if any(state.get('m_id') == market_id for state in ACTIVE_MARKETS.values()):
+        return
+    if any(state.get('m_id') == market_id for state in PRE_WARMING_MARKETS.values()):
+        return
+    LOCAL_STATE.pop(f'timing_{market_id}', None)
+    LIVE_MARKET_DATA.pop(market_id, None)
+    LOCKED_PRICES.pop(market_id, None)
+    MARKET_CACHE.pop(market_id, None)
+
+def rollback_failed_close(trade_id, details=""):
+    trade = get_trade_by_id(trade_id)
+    if not trade or not trade.get('closing_pending'):
+        return
+    trade.pop('closing_pending', None)
+    trade.pop('pending_close_price', None)
+    trade.pop('pending_close_reason', None)
+    trade.pop('close_requested_at', None)
+    trade.pop('close_clob_order_id', None)
+    suffix = f" Details: {details}" if details else ""
+    log(f"🔄 [LIVE] Close rollback for {trade_id}. Position restored for monitoring.{suffix}")
+
+def finalize_trade_close(trade, close_price, reason):
+    global PORTFOLIO_BALANCE
+    if trade not in PAPER_TRADES:
+        return
+    return_value = close_price * trade['shares']
+    pnl = return_value - trade['invested']
+    PORTFOLIO_BALANCE += return_value
+    history_trade = {k: v for k, v in trade.items() if k != 'closing_pending'}
+    TRADE_HISTORY.append({'pnl': pnl, 'reason': reason, **history_trade})
+    PAPER_TRADES.remove(trade)
+    AVAILABLE_TRADE_IDS.append(trade['short_id'])
+    AVAILABLE_TRADE_IDS.sort()
+
+    icon = "💰" if pnl > 0 else "🩸"
+    log(f"{icon} [ID: {trade['short_id']:02d}] SELL {trade['symbol']} {trade['strategy']} [{trade['timeframe']}] ({trade['direction']}) | {reason} | PnL: ${pnl:+.2f}")
+
+    if TRADING_MODE == 'live':
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(sync_live_balance())
+        except Exception:
+            pass
+
+    TRADE_LOGS_BUFFER.append((
+        trade['id'], trade['market_id'], f"{trade['symbol']}_{trade['timeframe']}",
+        trade['strategy'], trade['direction'], trade['invested'],
+        trade['entry_price'], trade['entry_time'], close_price, datetime.now().isoformat(), pnl, reason, SESSION_ID
+    ))
+    cleanup_market_state_if_unused(trade['market_id'])
+
 async def live_buy_worker(trade_id, token_id, size_usd, async_client: AsyncClobClient):
     buy_args = MarketOrderArgs(token_id=token_id, amount=size_usd, side="BUY")
     try:
@@ -272,6 +345,7 @@ async def live_sell_worker(trade_id, token_id, expected_gross_shares, async_clie
         sell_amount = min(net_shares, expected_gross_shares)
         if sell_amount <= 0:
             log_error(f"LIVE SELL Error {trade_id}", Exception("Insufficient net balance to sell."))
+            rollback_failed_close(trade_id, "No synced balance available for SELL.")
             return
 
         sell_args = MarketOrderArgs(token_id=token_id, amount=sell_amount, side="SELL")
@@ -292,13 +366,24 @@ async def live_sell_worker(trade_id, token_id, expected_gross_shares, async_clie
             shares_sold = raw_making / 1_000_000.0 if raw_making > 1000 else raw_making
             
             log(f"✅ [LIVE] SELL FAK dispatched for {trade_id}. Received: ${usd_received:.4f} for {shares_sold:.4f} shares.")
+            trade = get_trade_by_id(trade_id)
+            if not trade:
+                return
+            if shares_sold <= 0 or usd_received < 0:
+                rollback_failed_close(trade_id, "SELL response returned no filled shares.")
+                return
+            execution_price = usd_received / shares_sold if shares_sold > 0 else trade.get('pending_close_price', 0.0)
+            close_reason = trade.get('pending_close_reason', 'Live SELL Filled')
+            finalize_trade_close(trade, execution_price, close_reason)
             asyncio.create_task(sync_live_balance())
         else:
             error_msg = str(sell_res).lower()
             if "no orders found to match" in error_msg:
                 log(f"⚠️ [LIVE] Liquidity sniped by faster bot while selling {trade_id}. FAK order dropped gracefully.")
+                rollback_failed_close(trade_id, "Liquidity disappeared before SELL matched.")
             else:
                 log(f"⚠️ [LIVE] SELL Order rejected for {trade_id}: {sell_res.get('error_message', 'Unknown Error')}")
+                rollback_failed_close(trade_id, sell_res.get('error_message', 'Unknown Error'))
     except Exception as e:
         err_str = str(e).lower()
         if "request exception" in err_str or "timeout" in err_str:
@@ -307,6 +392,7 @@ async def live_sell_worker(trade_id, token_id, expected_gross_shares, async_clie
              log(f"⚠️ [LIVE] Liquidity sniped by faster bot while selling {trade_id}. FAK order dropped gracefully.")
         else:
             log_error(f"Live SELL Fatal Exception {trade_id}", e)
+        rollback_failed_close(trade_id, str(e)[:120])
 
 # ==========================================
 # 0. SYSTEM LOGGING & HELPERS
@@ -375,7 +461,7 @@ def get_market_tf_key_by_ui(ui_key):
 def close_manual_trade(short_id):
     for trade in PAPER_TRADES[:]:
         if trade['short_id'] == short_id:
-            live_bid = LIVE_MARKET_DATA.get(trade['market_id'], {}).get(f"{trade['direction']}_BID", 0.0)
+            live_bid = LIVE_MARKET_DATA.get(trade['market_id'], {}).get(f"{trade['direction']}_SELL", 0.0)
             close_trade(trade, live_bid, "MANUAL OVERRIDE CLOSE")
             log(f"⚡ [MANUAL] Option ID {short_id:02d} explicitly closed.")
             return
@@ -390,7 +476,7 @@ def close_market_trades(ui_key, reason="MANUAL MARKET CLOSE"):
     closed_count = 0
     for trade in PAPER_TRADES[:]:
         if f"{trade['symbol']}_{trade['timeframe']}" == tf_key:
-            live_bid = LIVE_MARKET_DATA.get(trade['market_id'], {}).get(f"{trade['direction']}_BID", 0.0)
+            live_bid = LIVE_MARKET_DATA.get(trade['market_id'], {}).get(f"{trade['direction']}_SELL", 0.0)
             close_trade(trade, live_bid, reason)
             closed_count += 1
             
@@ -520,7 +606,7 @@ async def liquidate_all_and_quit():
     perform_tech_dump() 
     if PAPER_TRADES:
         for trade in PAPER_TRADES[:]:
-            live_bid = LIVE_MARKET_DATA.get(trade['market_id'], {}).get(f"{trade['direction']}_BID", 0.0)
+            live_bid = LIVE_MARKET_DATA.get(trade['market_id'], {}).get(f"{trade['direction']}_SELL", 0.0)
             close_trade(trade, live_bid, "EMERGENCY CLOSE (Liquidation/Drawdown)")
         await flush_to_db()
     render_dashboard(TRACKED_CONFIGS, LOCAL_STATE, ACTIVE_MARKETS, PAPER_TRADES, LIVE_MARKET_DATA, PORTFOLIO_BALANCE, INITIAL_BALANCE, RECENT_LOGS, ACTIVE_ERRORS, TRADE_HISTORY)
@@ -577,37 +663,22 @@ def execute_trade(market_id, timeframe, strategy, direction, base_stake, price, 
             asyncio.create_task(live_buy_worker(trade_id, token_id, size_usd, ASYNC_CLOB_CLIENT))
 
 def close_trade(trade, close_price, reason):
-    global PORTFOLIO_BALANCE
-    return_value = close_price * trade['shares']
-    pnl = return_value - trade['invested']
-    PORTFOLIO_BALANCE += return_value
-    TRADE_HISTORY.append({'pnl': pnl, 'reason': reason, **trade})
-    PAPER_TRADES.remove(trade)
-    AVAILABLE_TRADE_IDS.append(trade['short_id'])
-    AVAILABLE_TRADE_IDS.sort()
-    
-    icon = "💰" if pnl > 0 else "🩸"
-    log(f"{icon} [ID: {trade['short_id']:02d}] SELL {trade['symbol']} {trade['strategy']} [{trade['timeframe']}] ({trade['direction']}) | {reason} | PnL: ${pnl:+.2f}")
-    
-    if TRADING_MODE == 'live':
-        try:
-            loop = asyncio.get_running_loop()
-            loop.create_task(sync_live_balance())
-        except Exception:
-            pass
-    
-    TRADE_LOGS_BUFFER.append((
-        trade['id'], trade['market_id'], f"{trade['symbol']}_{trade['timeframe']}",
-        trade['strategy'], trade['direction'], trade['invested'], 
-        trade['entry_price'], trade['entry_time'], close_price, datetime.now().isoformat(), pnl, reason, SESSION_ID
-    ))
+    if trade.get('closing_pending'):
+        return
 
     if TRADING_MODE == 'live' and ASYNC_CLOB_CLIENT and "Oracle Settlement" not in reason and "RESOLVED" not in reason:
-        token_id = None
-        if trade['market_id'] in MARKET_CACHE:
-            token_id = MARKET_CACHE[trade['market_id']]['up_id'] if trade['direction'] == 'UP' else MARKET_CACHE[trade['market_id']]['dn_id']
-        if token_id:
-            asyncio.create_task(live_sell_worker(trade['id'], token_id, trade['shares'], ASYNC_CLOB_CLIENT))
+        token_id = get_trade_token_id(trade)
+        if not token_id:
+            log(f"⚠️ [LIVE] Missing token_id for close of {trade['id']}. Position kept open for monitoring.")
+            return
+        trade['closing_pending'] = True
+        trade['pending_close_price'] = close_price
+        trade['pending_close_reason'] = reason
+        trade['close_requested_at'] = datetime.now().isoformat()
+        asyncio.create_task(live_sell_worker(trade['id'], token_id, trade['shares'], ASYNC_CLOB_CLIENT))
+        return
+
+    finalize_trade_close(trade, close_price, reason)
 
 def resolve_market(market_id, final_asset_price, target_price):
     if TRADING_MODE == 'live':
@@ -867,9 +938,12 @@ async def fetch_and_track_markets():
                                 resolve_market(a_m_id, adjusted_final_price, old_target)
 
                             LOCAL_STATE.pop(f'timing_{a_m_id}', None)
-                            LIVE_MARKET_DATA.pop(a_m_id, None)
-                            LOCKED_PRICES.pop(a_m_id, None)
-                            MARKET_CACHE.pop(a_m_id, None)
+                            if not has_open_trades_for_market(a_m_id):
+                                LIVE_MARKET_DATA.pop(a_m_id, None)
+                                LOCKED_PRICES.pop(a_m_id, None)
+                                MARKET_CACHE.pop(a_m_id, None)
+                            else:
+                                log(f"🧷 Retaining expired market cache for {a_m_id} until live positions are settled.")
 
                             if timeframe_key in PRE_WARMING_MARKETS:
                                 pw_m_id = PRE_WARMING_MARKETS[timeframe_key]['m_id']
@@ -1001,7 +1075,7 @@ async def fetch_and_track_markets():
                                 s_up, s_up_vol, b_up, b_up_vol, up_obi = extract_orderbook_metrics(up_id)
                                 s_dn, s_dn_vol, b_dn, b_dn_vol, dn_obi = extract_orderbook_metrics(dn_id)
 
-                                LIVE_MARKET_DATA[m_id] = {'UP_BID': s_up, 'DOWN_BID': s_dn}
+                                LIVE_MARKET_DATA[m_id] = {'UP_SELL': b_up, 'DOWN_SELL': b_dn}
                                 current_offset = m_data.get('offset', 0.0)
                                 adjusted_live_p = live_p - current_offset
 
@@ -1057,23 +1131,36 @@ async def evaluate_strategies(trigger_source, pair_filter=None):
             if m_data['price'] > 0 and abs(adj_delta) / m_data['price'] > sanity_limit:
                 continue 
             
-            s_up, _, b_up, _, _ = extract_orderbook_metrics(cache['up_id'])
-            s_dn, _, b_dn, _, _ = extract_orderbook_metrics(cache['dn_id'])
+            _, _, b_up, _, _ = extract_orderbook_metrics(cache['up_id'])
+            _, _, b_dn, _, _ = extract_orderbook_metrics(cache['dn_id'])
             
             # =====================================================================
             # MICRO-PROTECTION ENGINE
             # =====================================================================
             for trade in PAPER_TRADES[:]:
                 if trade['market_id'] != m_id: continue
-                current_bid = s_up if trade['direction'] == 'UP' else s_dn
+                if trade.get('closing_pending'): continue
+                current_bid = b_up if trade['direction'] == 'UP' else b_dn
                 entry_p = trade['entry_price']
                 
                 if current_bid <= 0.0: 
                     continue 
                 
-                # Standard Take Profit 
-                if current_bid >= entry_p * TAKE_PROFIT_MULTIPLIER and trade['strategy'] != "OTM Bargain" and trade['strategy'] != "Kinetic Sniper":
-                    close_trade(trade, current_bid, "Global Take Profit (+200%)")
+                pnl_ratio = current_bid / entry_p if entry_p > 0 else 0
+
+                if current_bid < entry_p:
+                    if 'loss_countdown' not in trade:
+                        trade['loss_countdown'] = time.time()
+                        log(f"⚠️ [ID: {trade['short_id']:02d}] {trade['strategy']} below breakeven. {LOSS_RECOVERY_TIMEOUT:.0f}s recovery countdown started.")
+                    elif time.time() - trade['loss_countdown'] >= LOSS_RECOVERY_TIMEOUT:
+                        close_trade(trade, current_bid, f"Loss Recovery Timeout ({LOSS_RECOVERY_TIMEOUT:.0f}s below breakeven)")
+                        continue
+                else:
+                    trade.pop('loss_countdown', None)
+
+                # Standard Take Profit
+                if pnl_ratio >= 2.0 and trade['strategy'] != "OTM Bargain" and trade['strategy'] != "Kinetic Sniper":
+                    close_trade(trade, current_bid, "Global Take Profit (+100% PNL)")
                     continue
                 
                 # Expiry Safe Evac 
@@ -1084,8 +1171,6 @@ async def evaluate_strategies(trigger_source, pair_filter=None):
 
                 # Kinetic Sniper Protection
                 if trade['strategy'] == "Kinetic Sniper":
-                    pnl_ratio = current_bid / entry_p if entry_p > 0 else 0
-                    
                     if pnl_ratio >= 1.50:
                         close_trade(trade, current_bid, "Kinetic TP (+50% PNL)")
                         continue

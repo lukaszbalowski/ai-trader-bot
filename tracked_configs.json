@@ -20,6 +20,13 @@
             "win_start": 86,
             "win_end": 34,
             "id": "btc_5m_mom_opt"
+        },
+        "otm": {
+            "wr": 50.0,
+            "max_p": 0.15,
+            "win_start": 86,
+            "win_end": 34,
+            "id": "btc_5m_otm_opt"
         }
     },
     {
