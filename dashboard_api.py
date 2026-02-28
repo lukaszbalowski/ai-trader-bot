@@ -100,6 +100,10 @@ def create_dashboard_app(state_store, command_bus, mode_manager) -> FastAPI:
     async def set_mode(target_mode: str) -> CommandResult:
         return await _dispatch(command_bus.set_mode(target_mode))
 
+    @app.post("/api/system/dump-session-log")
+    async def dump_session_log() -> CommandResult:
+        return await _dispatch(command_bus.dump_session_log())
+
     @app.websocket("/ws/dashboard")
     async def websocket_dashboard(websocket: WebSocket) -> None:
         await websocket.accept()

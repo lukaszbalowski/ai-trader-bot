@@ -143,6 +143,14 @@
       align-items: start;
     }
 
+    .layout.primary {
+      grid-template-columns: minmax(0, 1.6fr) minmax(340px, 0.95fr);
+    }
+
+    .layout.secondary {
+      grid-template-columns: 1fr 1fr;
+    }
+
     .stack {
       display: grid;
       gap: 18px;
@@ -162,6 +170,12 @@
       display: flex;
       gap: 10px;
       flex-wrap: wrap;
+    }
+
+    .action-status {
+      min-height: 18px;
+      color: var(--muted);
+      font-size: 13px;
     }
 
     button {
@@ -285,7 +299,9 @@
 
     @media (max-width: 1100px) {
       .summary-grid,
-      .layout {
+      .layout,
+      .layout.primary,
+      .layout.secondary {
         grid-template-columns: 1fr;
       }
     }
@@ -321,32 +337,31 @@
       </div>
       <div class="summary-grid" id="summaryGrid"></div>
       <div class="actions" id="modeActions"></div>
+      <div class="action-status" id="actionStatus"></div>
     </section>
 
-    <div class="layout">
-      <div class="stack">
-        <section class="panel">
-          <h2>Subscribed Markets</h2>
-          <div id="marketsTable"></div>
-        </section>
+    <div class="layout primary">
+      <section class="panel">
+        <h2>Subscribed Markets</h2>
+        <div id="marketsTable"></div>
+      </section>
 
-        <section class="panel">
-          <h2>Open Positions</h2>
-          <div id="positionsList" class="list"></div>
-        </section>
-      </div>
+      <section class="panel">
+        <h2>Open Positions</h2>
+        <div id="positionsList" class="list"></div>
+      </section>
+    </div>
 
-      <div class="stack">
-        <section class="panel">
-          <h2>Active Strategies</h2>
-          <div id="strategiesList" class="list"></div>
-        </section>
+    <div class="layout secondary">
+      <section class="panel">
+        <h2>Active Strategies</h2>
+        <div id="strategiesList" class="list"></div>
+      </section>
 
-        <section class="panel">
-          <h2>Service Status</h2>
-          <div id="servicesList" class="status-grid"></div>
-        </section>
-      </div>
+      <section class="panel">
+        <h2>Service Status</h2>
+        <div id="servicesList" class="status-grid"></div>
+      </section>
     </div>
   </main>
 
@@ -396,12 +411,20 @@
       return "warning";
     }
 
-    async function post(path) {
+    function showActionStatus(message, tone = "muted") {
+      const root = document.getElementById("actionStatus");
+      root.className = `action-status ${tone}`;
+      root.textContent = message;
+    }
+
+    async function post(path, successMessage = "") {
       const response = await fetch(`${API_BASE}${path}`, { method: "POST" });
       const payload = await response.json();
       if (!response.ok) {
+        showActionStatus(payload.detail || "Request failed", "negative");
         throw new Error(payload.detail || "Request failed");
       }
+      showActionStatus(successMessage || payload.message || "Action completed.", "positive");
       pulse();
       return payload;
     }
@@ -452,9 +475,11 @@
       root.innerHTML = `
         <button ${observeDisabled ? "disabled" : ""} data-action="observe">Observe only</button>
         <button ${!observeDisabled ? "disabled" : ""} data-action="resume">Resume ${session.startup_mode}</button>
+        <button data-action="dump-log">Write session log</button>
       `;
-      root.querySelector('[data-action="observe"]')?.addEventListener("click", () => post("/api/system/mode/observe_only"));
-      root.querySelector('[data-action="resume"]')?.addEventListener("click", () => post(`/api/system/mode/${session.startup_mode}`));
+      root.querySelector('[data-action="observe"]')?.addEventListener("click", () => post("/api/system/mode/observe_only", "Operation mode switched to observe-only."));
+      root.querySelector('[data-action="resume"]')?.addEventListener("click", () => post(`/api/system/mode/${session.startup_mode}`, `Operation mode resumed to ${session.startup_mode}.`));
+      root.querySelector('[data-action="dump-log"]')?.addEventListener("click", () => post("/api/system/dump-session-log"));
     }
 
     function renderMarkets(markets) {

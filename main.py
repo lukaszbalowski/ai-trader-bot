@@ -72,6 +72,7 @@ FULL_NAMES = {
 }
 
 SESSION_ID = f"sess_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+SESSION_LOG_PATH = os.path.join("data", f"{SESSION_ID}.log")
 
 OBSERVED_MARKET_TEMPLATES = [
     {'symbol': 'BTC', 'pair': 'BTCUSDT', 'timeframe': '5m', 'interval': 300, 'decimals': 2, 'offset': 0.0},
@@ -182,6 +183,8 @@ TRADE_LOGS_BUFFER = []
 LAST_FLUSH_TS = 0
 RECENT_LOGS = []
 ACTIVE_ERRORS = []
+SESSION_LOG_LINES = []
+SESSION_ERROR_LOGS = []
 
 WS_SUBSCRIPTION_QUEUE = asyncio.Queue()
 
@@ -698,26 +701,97 @@ def log(msg):
     RECENT_LOGS.append(timestamped)
     if len(RECENT_LOGS) > 10:
         RECENT_LOGS.pop(0)
+    SESSION_LOG_LINES.append(timestamped)
+
+
+def build_session_log_text(trigger_reason="scheduled 5m refresh"):
+    snapshot = STATE_STORE.snapshot().dict() if STATE_STORE else None
+    lines = [
+        "Watcher session log",
+        f"session_id: {SESSION_ID}",
+        f"written_at: {datetime.now().isoformat()}",
+        f"trigger: {trigger_reason}",
+        "",
+    ]
+
+    if snapshot:
+        session = snapshot["session"]
+        lines.extend(
+            [
+                "[session]",
+                f"startup_mode: {session['startup_mode']}",
+                f"operation_mode: {session['operation_mode']}",
+                f"execution_enabled: {session['execution_enabled']}",
+                f"duration: {session['duration_label']}",
+                f"cash_balance: {session['cash_balance']:.4f}",
+                f"invested_value: {session['invested_value']:.4f}",
+                f"portfolio_value: {session['total_portfolio_value']:.4f}",
+                f"pnl_value: {session['pnl_value']:.4f}",
+                f"pnl_percent: {session['pnl_percent']:.2f}",
+                "",
+                "[services]",
+            ]
+        )
+        for service in snapshot["services"]:
+            lines.append(f"{service['name']}: {service['status']} | {service['details']}")
+        lines.extend(["", "[markets]"])
+        for market in snapshot["markets"]:
+            lines.append(
+                f"{market['title']} | status={market['status']} | market_id={market['market_id'] or '-'} "
+                f"| live={market['live_price']:.4f} | delta={market['delta']:.4f} "
+                f"| positions={market['open_positions']}"
+            )
+        lines.extend(["", "[positions]"])
+        if snapshot["positions"]:
+            for position in snapshot["positions"]:
+                lines.append(
+                    f"#{position['short_id']:02d} {position['market_title']} | {position['strategy']} | "
+                    f"{position['direction']} | entry={position['entry_price']:.4f} "
+                    f"| current={position['current_price']:.4f} | value={position['current_value']:.4f} "
+                    f"| pnl={position['pnl_value']:.4f} ({position['pnl_percent']:.2f}%) "
+                    f"| close_blocked={position['close_blocked']}"
+                )
+        else:
+            lines.append("none")
+        lines.extend(["", "[strategies]"])
+        for strategy in snapshot["strategies"]:
+            lines.append(
+                f"{strategy['market_title']} | {strategy['strategy_label']} | enabled={strategy['enabled']} "
+                f"| execution_active={strategy['execution_active']} | open_positions={strategy['open_positions']} "
+                f"| pnl={strategy['pnl_value']:.4f} ({strategy['pnl_percent']:.2f}%)"
+            )
+        lines.append("")
+
+    lines.append("[active_errors]")
+    if SESSION_ERROR_LOGS:
+        lines.extend(SESSION_ERROR_LOGS)
+    else:
+        lines.append("none")
+    lines.extend(["", "[session_events]"])
+    if SESSION_LOG_LINES:
+        lines.extend(SESSION_LOG_LINES)
+    else:
+        lines.append("none")
+    lines.append("")
+    return "\n".join(lines)
+
+
+def write_session_log(trigger_reason="scheduled 5m refresh"):
+    os.makedirs("data", exist_ok=True)
+    with open(SESSION_LOG_PATH, "w", encoding="utf-8") as f:
+        f.write(build_session_log_text(trigger_reason))
+    return SESSION_LOG_PATH
 
 def log_error(context_msg, e):
     ts = datetime.now().strftime('%H:%M:%S')
     err_name = type(e).__name__
     err_msg = str(e).replace('\n', ' ')[:80]
-    ACTIVE_ERRORS.insert(0, f"[{ts}] {context_msg} | {err_name}: {err_msg}")
+    error_line = f"[{ts}] {context_msg} | {err_name}: {err_msg}"
+    ACTIVE_ERRORS.insert(0, error_line)
     if len(ACTIVE_ERRORS) > 3:
         ACTIVE_ERRORS.pop()
-    try:
-        os.makedirs("data", exist_ok=True)
-        with open("data/error_dumps.log", "a", encoding="utf-8") as f:
-            f.write(f"\n{'='*60}\n")
-            f.write(f"TIME: {datetime.now().isoformat()}\n")
-            f.write(f"MODULE: {context_msg}\n")
-            f.write(f"ERROR TYPE: {err_name}\n")
-            f.write(f"MESSAGE:\n{str(e)}\n\n")
-            f.write(f"TRACEBACK:\n{traceback.format_exc()}\n")
-            f.write(f"{'='*60}\n")
-    except Exception:
-        pass
+    SESSION_ERROR_LOGS.append(error_line)
+    SESSION_ERROR_LOGS.append(traceback.format_exc().rstrip())
 
 def perform_tech_dump():
     try:
@@ -749,6 +823,12 @@ def perform_tech_dump():
         log(f"\033[1m\033[32m💾 PANIC DUMP SUCCESS: Memory state saved to {filename}\033[0m")
     except Exception as e:
         log_error("Tech Dump Error", e)
+
+
+def dump_session_log():
+    path = write_session_log("manual dashboard dump")
+    log(f"📝 [SESSION LOG] Snapshot written to {path}")
+    return f"Session log saved to {path}"
 
 def close_manual_trade(short_id):
     for trade in PAPER_TRADES[:]:
@@ -857,6 +937,7 @@ def handle_stdin():
             asyncio.create_task(liquidate_all_and_quit())
         elif cmd == 'd':
             perform_tech_dump()
+            dump_session_log()
         elif cmd.startswith('o') and cmd[1:].isdigit():
             close_manual_trade(int(cmd[1:]))
         elif cmd.startswith('ms') and len(cmd) == 3:
@@ -933,6 +1014,7 @@ async def async_smart_flush_worker():
             current_5m_block = (now_ts // 300) * 300
             if (now_ts % 300) >= 5 and current_5m_block > LAST_FLUSH_TS:
                 await flush_to_db()
+                write_session_log("scheduled 5m market refresh")
                 LAST_FLUSH_TS = current_5m_block
         except Exception as e:
             log_error("Smart Flush Worker", e)
@@ -985,6 +1067,7 @@ async def dashboard_api_worker():
 async def liquidate_all_and_quit():
     log("🚨 EMERGENCY LIQUIDATION. Selling positions and stopping system...")
     perform_tech_dump() 
+    write_session_log("emergency liquidation")
     if PAPER_TRADES:
         for trade in PAPER_TRADES[:]:
             live_bid = LIVE_MARKET_DATA.get(trade['market_id'], {}).get(f"{trade['direction']}_SELL", 0.0)
@@ -1798,9 +1881,11 @@ async def main():
         close_position=close_trade_by_trade_id,
         set_strategy_enabled=set_strategy_enabled,
         set_mode=switch_operation_mode,
+        dump_session_log=dump_session_log,
     )
     
     log(f"🚀 LOCAL ORACLE SYSTEM INITIALIZATION. Session ID: {SESSION_ID}")
+    write_session_log("session startup")
     
     if TRADING_MODE == 'live':
         log("🔌 LIVE MODE INITIALIZED. Connecting to Polymarket API...")

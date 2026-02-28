@@ -434,6 +434,7 @@ class CommandBus:
         close_position: Callable[[str], str],
         set_strategy_enabled: Callable[[str, str, bool], str],
         set_mode: Callable[[str], str],
+        dump_session_log: Callable[[], str],
     ) -> None:
         self._stop_market = stop_market
         self._resume_market = resume_market
@@ -441,6 +442,7 @@ class CommandBus:
         self._close_position = close_position
         self._set_strategy_enabled = set_strategy_enabled
         self._set_mode = set_mode
+        self._dump_session_log = dump_session_log
 
     async def stop_market(self, market_key: str) -> dict[str, Any]:
         return {"ok": True, "message": self._stop_market(market_key)}
@@ -468,3 +470,6 @@ class CommandBus:
 
     async def set_mode(self, target_mode: str) -> dict[str, Any]:
         return {"ok": True, "message": self._set_mode(target_mode)}
+
+    async def dump_session_log(self) -> dict[str, Any]:
+        return {"ok": True, "message": self._dump_session_log()}
