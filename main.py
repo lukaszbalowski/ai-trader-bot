@@ -418,6 +418,9 @@ def clear_trade_close_blocked(trade):
     trade.pop('close_blocked', None)
     trade.pop('close_blocked_reason', None)
 
+def can_trade_submit_close(trade):
+    return normalize_market_sell_shares(trade.get('shares', 0.0)) >= MIN_MARKET_SELL_SHARES
+
 def get_trade_sell_price(trade):
     if trade['market_id'] in LIVE_MARKET_DATA:
         price = LIVE_MARKET_DATA[trade['market_id']].get(f"{trade['direction']}_SELL", 0.0)
@@ -1406,14 +1409,35 @@ async def live_position_reconciliation_worker():
 
                 actual_balance = await ASYNC_CLOB_CLIENT.get_actual_balance(token_id)
 
-                if trade.get('close_blocked') and actual_balance >= MIN_MARKET_SELL_SHARES:
+                if trade.get('close_blocked') and can_trade_submit_close(trade):
                     clear_trade_close_blocked(trade)
-                    log(f"♻️ [LIVE] Close re-enabled for {trade['id']} after balance increased to {actual_balance:.6f} shares.")
+                    log(
+                        f"♻️ [LIVE] Close re-enabled for {trade['id']} after trade size recovered to "
+                        f"{trade['shares']:.6f} shares."
+                    )
 
                 if trade.get('closing_pending'):
                     original_shares = trade.get('pending_close_initial_shares', trade['shares'])
                     elapsed = time.time() - trade.get('close_submitted_ts', trade.get('close_requested_ts', time.time()))
                     confirmed = trade.get('close_confirmed', False)
+                    reported_shares = max(trade.get('pending_close_reported_shares', 0.0), 0.0)
+                    remaining_from_report = max(original_shares - reported_shares, 0.0)
+                    has_trade_fill_report = reported_shares > POSITION_DUST_SHARES
+
+                    if has_trade_fill_report:
+                        if confirmed or elapsed >= CLOSE_RECONCILE_GRACE_SEC:
+                            execution_price = (
+                                trade.get('close_execution_price')
+                                or trade.get('pending_close_reported_price')
+                                or trade.get('pending_close_price', 0.0)
+                            )
+                            if remaining_from_report <= POSITION_DUST_SHARES:
+                                close_reason = trade.get('pending_close_reason', 'Live SELL Filled')
+                                finalize_trade_close(trade, execution_price, close_reason)
+                            else:
+                                close_reason = trade.get('pending_close_reason', 'Live Partial SELL Filled')
+                                apply_partial_close_fill(trade, remaining_from_report, execution_price, close_reason)
+                        continue
 
                     if actual_balance <= POSITION_DUST_SHARES:
                         if confirmed or elapsed >= CLOSE_RECONCILE_GRACE_SEC:
@@ -1427,6 +1451,21 @@ async def live_position_reconciliation_worker():
                         continue
 
                     if actual_balance < max(original_shares - POSITION_DUST_SHARES, 0.0):
+                        same_token_open = [
+                            other for other in PAPER_TRADES
+                            if other is not trade and other.get('token_id') == token_id
+                        ]
+                        if same_token_open:
+                            if elapsed >= CLOSE_PENDING_TIMEOUT:
+                                rollback_failed_close(
+                                    trade['id'],
+                                    (
+                                        "Shared token balance changed without a per-order fill report; "
+                                        "keeping the position open to avoid misallocating shares."
+                                    ),
+                                )
+                            continue
+
                         if confirmed or elapsed >= CLOSE_RECONCILE_GRACE_SEC:
                             execution_price = (
                                 trade.get('close_execution_price')
