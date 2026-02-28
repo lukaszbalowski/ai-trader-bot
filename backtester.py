@@ -15,8 +15,11 @@ import builtins
 from datetime import datetime
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
-PARAM_JITTER_PCTS = (0.10, 0.15)
+PARAM_JITTER_MIN_PCT = -0.85
+PARAM_JITTER_MAX_PCT = 0.85
+PARAM_JITTER_STEP_PCT = 0.02
 MONTE_CARLO_LIMIT = 1_000_000
+QUICK_MONTE_CARLO_LIMIT = 100_000
 TERMINAL_LOG_BUFFER = []
 QUICK_MODE = False
 
@@ -383,9 +386,9 @@ def get_sampling_target(total, default_limit=MONTE_CARLO_LIMIT):
         return 0, None
     if QUICK_MODE:
         if 100_001 <= total <= 1_000_000:
-            return 100_000, "quick_100k"
+            return QUICK_MONTE_CARLO_LIMIT, "quick_100k"
         if total > 1_000_000:
-            return max(1, int(total * 0.10)), "quick_10pct"
+            return min(default_limit, max(1, int(total * 0.10))), "quick_10pct_capped"
         return total, None
     if total > default_limit:
         return default_limit, "default_limit"
@@ -393,11 +396,28 @@ def get_sampling_target(total, default_limit=MONTE_CARLO_LIMIT):
 
 def format_sampling_reason(reason, total, sample_size):
     if reason == "quick_100k":
-        return f"Quick mode: siatka badawcza ({total}) mieści się w przedziale 100 001-1 000 000. Losuję 100 000 prób Monte Carlo."
-    if reason == "quick_10pct":
+        return (
+            f"Quick mode: siatka badawcza ({total}) mieści się w przedziale 100 001-1 000 000. "
+            f"Losuję 100 000 kombinacji parametrów Monte Carlo i testuję je na pełnej historii ticków."
+        )
+    if reason == "quick_10pct_capped":
         pct = (sample_size / total) * 100 if total else 0
-        return f"Quick mode: siatka badawcza ({total}) przekracza 1 000 000. Losuję {sample_size} prób Monte Carlo ({pct:.1f}% całości)."
+        cap_note = " (cap 1 000 000)" if sample_size == MONTE_CARLO_LIMIT and total * 0.10 > MONTE_CARLO_LIMIT else ""
+        return (
+            f"Quick mode: siatka badawcza ({total}) przekracza 1 000 000. "
+            f"Losuję {sample_size} kombinacji parametrów Monte Carlo ({pct:.2f}% całości){cap_note} "
+            f"i testuję je na pełnej historii ticków."
+        )
     return f"Siatka badawcza ({total}) przekracza limit. Uruchamiam metodę Monte Carlo (losuję {sample_size} prób)..."
+
+def log_parameter_search_space(sampled_count, total_param_combinations, ticks_count):
+    estimated_tick_evals = sampled_count * ticks_count
+    print(
+        "   📊 Przestrzeń testu | "
+        f"kombinacje_parametrow: {sampled_count} (z {total_param_combinations}) | "
+        f"ticki_bazy: {ticks_count} | "
+        f"szac_koszt_tick_eval: {estimated_tick_evals}"
+    )
 
 def apply_monte_carlo(combinations, limit=1000000):
     total = len(combinations)
@@ -412,12 +432,15 @@ def apply_monte_carlo(combinations, limit=1000000):
     return combinations, total
 
 def jitter_values(values, integer=False, precision=6, min_value=None, max_value=None):
+    if isinstance(values, (int, float)):
+        values = [values]
     expanded = set()
     for value in values:
-        variants = [value]
-        for pct in PARAM_JITTER_PCTS:
-            variants.append(value * (1.0 - pct))
+        pct = PARAM_JITTER_MIN_PCT
+        variants = []
+        while pct <= PARAM_JITTER_MAX_PCT + 1e-9:
             variants.append(value * (1.0 + pct))
+            pct += PARAM_JITTER_STEP_PCT
         for variant in variants:
             if integer:
                 variant = int(round(variant))
@@ -544,22 +567,23 @@ def test_kinetic_sniper(df_markets, symbol, interval):
     print(f"\n" + "=" * 80)
     print(f" 🚀 KINETIC SNIPER | {symbol} {interval}")
     
-    if symbol == "BTC": trig_list = [x/10000.0 for x in range(1, 15, 1)] 
-    elif symbol == "ETH": trig_list = [x/10000.0 for x in range(2, 20, 1)] 
-    elif symbol == "SOL": trig_list = [x/10000.0 for x in range(5, 40, 2)] 
-    elif symbol == "XRP": trig_list = [x/10000.0 for x in range(5, 50, 2)] 
-    else: trig_list = [0.0010]
-    
-    combinations = [
-        {'trigger_pct': tp, 'max_slippage': sl, 'max_price': mp, 'g_sec': 3.0, 'window_ms': 1000}
-        for tp in trig_list
-        for sl in [0.02, 0.03, 0.04, 0.05] 
-        for mp in [x/100.0 for x in range(70, 100, 1)]
-    ]
-    
+    trigger_base_map = {
+        "BTC": 0.00075,
+        "ETH": 0.00105,
+        "SOL": 0.0022,
+        "XRP": 0.0027,
+    }
+    param_axes = {
+        'trigger_pct': jitter_values(trigger_base_map.get(symbol, 0.0010), precision=6, min_value=0.0),
+        'max_slippage': jitter_values(0.035, precision=4, min_value=0.0001),
+        'max_price': jitter_values(0.85, precision=3, min_value=0.05, max_value=0.999),
+        'g_sec': jitter_values(3.0, precision=3, min_value=0.1),
+        'window_ms': jitter_values(1000, integer=True, min_value=1),
+    }
+
+    combinations, original_count = build_param_combinations(param_axes)
     ticks_count = len(df_markets)
-    combinations, original_count = apply_monte_carlo(combinations)
-    print(f"   📊 Rozmiar siatki badawczej: {len(combinations)} kombinacji (z {original_count}) | {ticks_count} ticków danych L2")
+    log_parameter_search_space(len(combinations), original_count, ticks_count)
     
     fast_markets = prepare_fast_markets(df_markets)
     num_cores = os.cpu_count() or 4
@@ -612,24 +636,24 @@ def test_1min_momentum(df_markets, symbol, interval):
     print(f"\n" + "=" * 80)
     print(f" 🚀 1-MINUTE MOMENTUM | {symbol} {interval}")
     
-    if symbol == "BTC": d_list = [x/1.0 for x in range(1, 15)] 
-    elif symbol == "ETH": d_list = [x/10.0 for x in range(1, 10)] 
-    elif symbol == "SOL": d_list = [x/100.0 for x in range(1, 10)] 
-    elif symbol == "XRP": d_list = [x/10000.0 for x in range(1, 10)] 
-    else: d_list = [1.0]
-    
-    combinations = [
-        {'delta': d, 'max_p': m_p, 'win_start': ws, 'win_end': we, 'g_sec': 2.0}
-        for d in d_list 
-        for m_p in [x / 100.0 for x in range(50, 96, 1)] 
-        for ws in range(240, 59, -2) # Krok co 2s chroni przed budową listy > 10 milionów przed Monte Carlo
-        for we in range(50, 4, -2) 
-        if ws > we + 10
-    ]
-    
+    delta_base_map = {
+        "BTC": 7.5,
+        "ETH": 0.5,
+        "SOL": 0.05,
+        "XRP": 0.0005,
+    }
+    param_axes = {
+        'delta': jitter_values(delta_base_map.get(symbol, 1.0), precision=6, min_value=0.0),
+        'max_p': jitter_values(0.725, precision=3, min_value=0.05, max_value=0.999),
+        'win_start': jitter_values(150, integer=True, min_value=1),
+        'win_end': jitter_values(28, integer=True, min_value=0),
+        'g_sec': jitter_values(2.0, precision=3, min_value=0.1),
+    }
+
+    combinations, original_count = build_param_combinations(param_axes)
+    combinations = [c for c in combinations if c['win_start'] > c['win_end'] + 10]
     ticks_count = len(df_markets)
-    combinations, original_count = apply_monte_carlo(combinations)
-    print(f"   📊 Rozmiar siatki badawczej: {len(combinations)} kombinacji (z {original_count}) | {ticks_count} ticków danych L2")
+    log_parameter_search_space(len(combinations), original_count, ticks_count)
     
     fast_markets = prepare_fast_markets(df_markets)
     num_cores = os.cpu_count() or 4
@@ -679,24 +703,24 @@ def test_mid_game_arb(df_markets, symbol, interval):
     print(f"\n" + "=" * 80)
     print(f" ⚖️ MID-GAME ARB | {symbol} {interval}")
     
-    if symbol == "BTC": d_list = [x/1.0 for x in range(1, 10)]
-    elif symbol == "ETH": d_list = [x/10.0 for x in range(1, 6)]
-    elif symbol == "SOL": d_list = [x/100.0 for x in range(1, 4)]
-    elif symbol == "XRP": d_list = [x/10000.0 for x in range(1, 4)]
-    else: d_list = [1.0]
-    
-    combinations = [
-        {'delta': d, 'max_p': mp, 'win_start': ws, 'win_end': we, 'g_sec': 2.0}
-        for d in d_list 
-        for mp in [x/100.0 for x in range(45, 81, 1)] 
-        for ws in range(1800, 599, -10) 
-        for we in range(240, 119, -2)  
-        if ws > we + 60
-    ]
-    
+    delta_base_map = {
+        "BTC": 5.0,
+        "ETH": 0.3,
+        "SOL": 0.02,
+        "XRP": 0.0002,
+    }
+    param_axes = {
+        'delta': jitter_values(delta_base_map.get(symbol, 1.0), precision=6, min_value=0.0),
+        'max_p': jitter_values(0.625, precision=3, min_value=0.05, max_value=0.999),
+        'win_start': jitter_values(1200, integer=True, min_value=1),
+        'win_end': jitter_values(180, integer=True, min_value=0),
+        'g_sec': jitter_values(2.0, precision=3, min_value=0.1),
+    }
+
+    combinations, original_count = build_param_combinations(param_axes)
+    combinations = [c for c in combinations if c['win_start'] > c['win_end'] + 60]
     ticks_count = len(df_markets)
-    combinations, original_count = apply_monte_carlo(combinations)
-    print(f"   📊 Rozmiar siatki badawczej: {len(combinations)} kombinacji (z {original_count}) | {ticks_count} ticków danych L2")
+    log_parameter_search_space(len(combinations), original_count, ticks_count)
     
     fast_markets = prepare_fast_markets(df_markets)
     num_cores = os.cpu_count() or 4
@@ -755,17 +779,18 @@ def test_otm_bargain(df_markets, symbol, interval):
     elif symbol == "XRP": max_d = 0.003
     else: max_d = 10.0
     
-    combinations = [
-        {'win_start': ws, 'win_end': we, 'max_p': p, 'g_sec': 2.0, 'max_delta_abs': max_d}
-        for ws in range(120, 60, -1) 
-        for we in range(50, 20, -1)  
-        for p in [x/100.0 for x in range(2, 26, 1)] 
-        if ws > we
-    ]
-    
+    param_axes = {
+        'win_start': jitter_values(90, integer=True, min_value=1),
+        'win_end': jitter_values(35, integer=True, min_value=0),
+        'max_p': jitter_values(0.135, precision=3, min_value=0.001, max_value=0.999),
+        'g_sec': jitter_values(2.0, precision=3, min_value=0.1),
+        'max_delta_abs': jitter_values(max_d, precision=6, min_value=0.0),
+    }
+
+    combinations, original_count = build_param_combinations(param_axes)
+    combinations = [c for c in combinations if c['win_start'] > c['win_end']]
     ticks_count = len(df_markets)
-    combinations, original_count = apply_monte_carlo(combinations)
-    print(f"   📊 Rozmiar siatki badawczej: {len(combinations)} kombinacji (z {original_count}) | {ticks_count} ticków danych L2")
+    log_parameter_search_space(len(combinations), original_count, ticks_count)
     
     fast_markets = prepare_fast_markets(df_markets)
     num_cores = os.cpu_count() or 4
@@ -790,26 +815,59 @@ def worker_l2_spread_scalper(param_chunk, fast_markets):
     for params in param_chunk:
         total_pnl, trades_count, wins_count = 0.0, 0, 0
         spread_threshold = params['min_spread_threshold']
+        skew_allowance = params['skew_allowance']
+        max_hold_sec = params['max_hold_sec']
         for mkt in fast_markets:
             for tick in range(len(mkt['sec_left'])):
                 up_spread = mkt['s_up'][tick] - mkt['b_up'][tick]
                 dn_spread = mkt['s_dn'][tick] - mkt['b_dn'][tick]
-                if up_spread >= spread_threshold and mkt['b_up'][tick] > 0.0:
-                    trades_count += 1
-                    if mkt['won_up'] or (tick + 10 < len(mkt['s_up']) and mkt['b_up'][tick+10] > mkt['b_up'][tick]):
-                        wins_count += 1
-                        total_pnl += (up_spread * 0.8) * stake
+                up_skew = abs(mkt['up_vol_imbalance'][tick])
+                dn_skew = abs(mkt['dn_vol_imbalance'][tick])
+                entry = None
+                if up_spread >= spread_threshold and up_skew <= skew_allowance and mkt['b_up'][tick] > 0.0:
+                    entry = ('UP', mkt['b_up'][tick], up_spread)
+                elif dn_spread >= spread_threshold and dn_skew <= skew_allowance and mkt['b_dn'][tick] > 0.0:
+                    entry = ('DOWN', mkt['b_dn'][tick], dn_spread)
+                if not entry:
+                    continue
+
+                direction, entry_price, entry_spread = entry
+                shares = stake / entry_price
+                exit_pnl = None
+                entry_sec_left = mkt['sec_left'][tick]
+                trades_count += 1
+
+                for future_tick in range(tick + 1, len(mkt['sec_left'])):
+                    held_sec = max(0.0, entry_sec_left - mkt['sec_left'][future_tick])
+                    current_bid = mkt['b_up'][future_tick] if direction == 'UP' else mkt['b_dn'][future_tick]
+                    current_spread = mkt['up_spread'][future_tick] if direction == 'UP' else mkt['dn_spread'][future_tick]
+                    if current_bid <= 0:
+                        continue
+                    if current_spread <= entry_spread * 0.5:
+                        exit_pnl = (current_bid * shares) - stake
+                        break
+                    if current_bid >= entry_price * 1.05:
+                        exit_pnl = (current_bid * shares) - stake
+                        break
+                    if current_bid <= entry_price * 0.95:
+                        exit_pnl = (current_bid * shares) - stake
+                        break
+                    if held_sec >= max_hold_sec:
+                        exit_pnl = (current_bid * shares) - stake
+                        break
+
+                if exit_pnl is None:
+                    final_bid = mkt['b_up'][-1] if direction == 'UP' else mkt['b_dn'][-1]
+                    if final_bid > 0:
+                        exit_pnl = (final_bid * shares) - stake
                     else:
-                        total_pnl -= 0.10 * stake
-                    break
-                elif dn_spread >= spread_threshold and mkt['b_dn'][tick] > 0.0:
-                    trades_count += 1
-                    if not mkt['won_up'] or (tick + 10 < len(mkt['s_dn']) and mkt['b_dn'][tick+10] > mkt['b_dn'][tick]):
-                        wins_count += 1
-                        total_pnl += (dn_spread * 0.8) * stake
-                    else:
-                        total_pnl -= 0.10 * stake
-                    break
+                        won = mkt['won_up'] if direction == 'UP' else not mkt['won_up']
+                        exit_pnl = (1.0 * shares - stake) if won else -stake
+
+                total_pnl += exit_pnl
+                if exit_pnl > 0:
+                    wins_count += 1
+                break
         if trades_count > 0:
             pnl_proc = (total_pnl / (trades_count * stake)) * 100
             score = calculate_composite_score(total_pnl, trades_count)
@@ -821,16 +879,14 @@ def test_l2_spread_scalper(df_markets, symbol, interval):
     print(f"\n" + "=" * 80)
     print(f" ⚡ L2 SPREAD SCALPER | {symbol} {interval}")
     
-    combinations = [
-        {'min_spread_threshold': sp, 'skew_allowance': sk, 'max_hold_sec': mh}
-        for sp in [x/100.0 for x in range(1, 11)] 
-        for sk in [0.02, 0.05, 0.08, 0.10] 
-        for mh in [5.0, 10.0, 15.0, 20.0]
-    ]
-    
+    param_axes = {
+        'min_spread_threshold': jitter_values(0.055, precision=4, min_value=0.0001),
+        'skew_allowance': jitter_values(0.0625, precision=4, min_value=0.0001),
+        'max_hold_sec': jitter_values(12.5, precision=3, min_value=0.1),
+    }
+    combinations, original_count = build_param_combinations(param_axes)
     ticks_count = len(df_markets)
-    combinations, original_count = apply_monte_carlo(combinations)
-    print(f"   📊 Rozmiar siatki badawczej: {len(combinations)} kombinacji (z {original_count}) | {ticks_count} ticków danych L2")
+    log_parameter_search_space(len(combinations), original_count, ticks_count)
     
     fast_markets = prepare_fast_markets(df_markets)
     num_cores = os.cpu_count() or 4
@@ -855,11 +911,17 @@ def worker_vol_mean_reversion(param_chunk, fast_markets):
         total_pnl, trades_count, wins_count = 0.0, 0, 0
         drop_threshold = params['clob_panic_drop']
         rev_multiplier = params['reversion_tp_multiplier']
+        vol_multiplier = params['binance_vol_multiplier']
         for mkt in fast_markets:
-            for tick in range(1, len(mkt['sec_left'])):
-                if mkt['live_pct_change'][tick] <= -drop_threshold:
+            total_vol = mkt['up_total_vol'] + mkt['dn_total_vol']
+            for tick in range(5, len(mkt['sec_left'])):
+                recent_avg_vol = float(np.mean(total_vol[max(0, tick - 5):tick]))
+                current_vol = total_vol[tick]
+                volume_spike = current_vol >= recent_avg_vol * vol_multiplier if recent_avg_vol > 0 else current_vol > 0
+                if mkt['live_pct_change'][tick] <= -drop_threshold and volume_spike:
                     entry_price = mkt['b_up'][tick]
-                    if entry_price <= 0: continue
+                    if entry_price <= 0:
+                        continue
                     trades_count += 1
                     reverted = False
                     for future_tick in range(tick + 1, min(tick + 50, len(mkt['sec_left']))):
@@ -883,16 +945,14 @@ def test_vol_mean_reversion(df_markets, symbol, interval):
     print(f"\n" + "=" * 80)
     print(f" 📉 VOL MEAN REVERSION | {symbol} {interval}")
     
-    combinations = [
-        {'binance_vol_multiplier': vm, 'clob_panic_drop': pd, 'reversion_tp_multiplier': rtp}
-        for vm in [2.0, 3.0, 4.0]
-        for pd in [0.01, 0.02, 0.03, 0.05, 0.08, 0.10] 
-        for rtp in [1.1, 1.2, 1.3, 1.5] 
-    ]
-    
+    param_axes = {
+        'binance_vol_multiplier': jitter_values(3.0, precision=3, min_value=0.01),
+        'clob_panic_drop': jitter_values(0.048, precision=4, min_value=0.0001),
+        'reversion_tp_multiplier': jitter_values(1.275, precision=4, min_value=1.001),
+    }
+    combinations, original_count = build_param_combinations(param_axes)
     ticks_count = len(df_markets)
-    combinations, original_count = apply_monte_carlo(combinations)
-    print(f"   📊 Rozmiar siatki badawczej: {len(combinations)} kombinacji (z {original_count}) | {ticks_count} ticków danych L2")
+    log_parameter_search_space(len(combinations), original_count, ticks_count)
     
     fast_markets = prepare_fast_markets(df_markets)
     num_cores = os.cpu_count() or 4
@@ -954,7 +1014,7 @@ def test_mean_reversion_obi(df_markets, symbol, interval):
         'sl_mult': jitter_values([0.88], precision=3, min_value=0.50),
     }
     combinations, original_count = build_param_combinations(param_axes)
-    print(f"   📊 Rozmiar siatki badawczej: {len(combinations)} kombinacji (z {original_count}) | {len(df_markets)} ticków danych L2")
+    log_parameter_search_space(len(combinations), original_count, len(df_markets))
     fast_markets = prepare_fast_markets(df_markets)
     best_results = execute_with_progress(worker_mean_reversion_obi, combinations, fast_markets, os.cpu_count() or 4)
     best_result = select_optimal_result(best_results)
@@ -1020,7 +1080,7 @@ def test_spread_compression(df_markets, symbol, interval):
         'sl_mult': jitter_values([0.90], precision=3, min_value=0.50),
     }
     combinations, original_count = build_param_combinations(param_axes)
-    print(f"   📊 Rozmiar siatki badawczej: {len(combinations)} kombinacji (z {original_count}) | {len(df_markets)} ticków danych L2")
+    log_parameter_search_space(len(combinations), original_count, len(df_markets))
     fast_markets = prepare_fast_markets(df_markets)
     best_results = execute_with_progress(worker_spread_compression, combinations, fast_markets, os.cpu_count() or 4)
     best_result = select_optimal_result(best_results)
@@ -1069,7 +1129,7 @@ def test_divergence_imbalance(df_markets, symbol, interval):
         'sl_mult': jitter_values([0.88], precision=3, min_value=0.50),
     }
     combinations, original_count = build_param_combinations(param_axes)
-    print(f"   📊 Rozmiar siatki badawczej: {len(combinations)} kombinacji (z {original_count}) | {len(df_markets)} ticków danych L2")
+    log_parameter_search_space(len(combinations), original_count, len(df_markets))
     fast_markets = prepare_fast_markets(df_markets)
     best_results = execute_with_progress(worker_divergence_imbalance, combinations, fast_markets, os.cpu_count() or 4)
     best_result = select_optimal_result(best_results)
@@ -1122,7 +1182,7 @@ def test_obi_acceleration(df_markets, symbol, interval):
         'sl_mult': jitter_values([0.90], precision=3, min_value=0.50),
     }
     combinations, original_count = build_param_combinations(param_axes)
-    print(f"   📊 Rozmiar siatki badawczej: {len(combinations)} kombinacji (z {original_count}) | {len(df_markets)} ticków danych L2")
+    log_parameter_search_space(len(combinations), original_count, len(df_markets))
     fast_markets = prepare_fast_markets(df_markets)
     best_results = execute_with_progress(worker_obi_acceleration, combinations, fast_markets, os.cpu_count() or 4)
     best_result = select_optimal_result(best_results)
@@ -1182,7 +1242,7 @@ def test_volatility_compression_breakout(df_markets, symbol, interval):
         'sl_mult': jitter_values([0.90], precision=3, min_value=0.50),
     }
     combinations, original_count = build_param_combinations(param_axes)
-    print(f"   📊 Rozmiar siatki badawczej: {len(combinations)} kombinacji (z {original_count}) | {len(df_markets)} ticków danych L2")
+    log_parameter_search_space(len(combinations), original_count, len(df_markets))
     fast_markets = prepare_fast_markets(df_markets)
     best_results = execute_with_progress(worker_volatility_compression_breakout, combinations, fast_markets, os.cpu_count() or 4)
     best_result = select_optimal_result(best_results)
@@ -1237,7 +1297,7 @@ def test_absorption_pattern(df_markets, symbol, interval):
         'sl_mult': jitter_values([0.90], precision=3, min_value=0.50),
     }
     combinations, original_count = build_param_combinations(param_axes)
-    print(f"   📊 Rozmiar siatki badawczej: {len(combinations)} kombinacji (z {original_count}) | {len(df_markets)} ticków danych L2")
+    log_parameter_search_space(len(combinations), original_count, len(df_markets))
     fast_markets = prepare_fast_markets(df_markets)
     best_results = execute_with_progress(worker_absorption_pattern, combinations, fast_markets, os.cpu_count() or 4)
     best_result = select_optimal_result(best_results)
@@ -1291,7 +1351,7 @@ def test_cross_market_spillover(df_markets, symbol, interval):
         'sl_mult': jitter_values([0.90], precision=3, min_value=0.50),
     }
     combinations, original_count = build_param_combinations(param_axes)
-    print(f"   📊 Rozmiar siatki badawczej: {len(combinations)} kombinacji (z {original_count}) | {len(df_markets)} ticków danych L2")
+    log_parameter_search_space(len(combinations), original_count, len(df_markets))
     fast_markets = prepare_fast_markets(df_markets)
     best_results = execute_with_progress(worker_cross_market_spillover, combinations, fast_markets, os.cpu_count() or 4)
     best_result = select_optimal_result(best_results)
@@ -1355,7 +1415,7 @@ def test_session_based_edge(df_markets, symbol, interval):
     }
     combinations, original_count = build_param_combinations(param_axes)
     combinations = [c for c in combinations if c['hour_start'] <= c['hour_end']]
-    print(f"   📊 Rozmiar siatki badawczej: {len(combinations)} kombinacji (z {original_count}) | {len(df_markets)} ticków danych L2")
+    log_parameter_search_space(len(combinations), original_count, len(df_markets))
     fast_markets = prepare_fast_markets(df_markets)
     best_results = execute_with_progress(worker_session_based_edge, combinations, fast_markets, os.cpu_count() or 4)
     best_result = select_optimal_result(best_results)
@@ -1406,7 +1466,7 @@ def test_settlement_convergence(df_markets, symbol, interval):
         'sl_mult': jitter_values([0.93], precision=3, min_value=0.50),
     }
     combinations, original_count = build_param_combinations(param_axes)
-    print(f"   📊 Rozmiar siatki badawczej: {len(combinations)} kombinacji (z {original_count}) | {len(df_markets)} ticków danych L2")
+    log_parameter_search_space(len(combinations), original_count, len(df_markets))
     fast_markets = prepare_fast_markets(df_markets)
     best_results = execute_with_progress(worker_settlement_convergence, combinations, fast_markets, os.cpu_count() or 4)
     best_result = select_optimal_result(best_results)
@@ -1455,7 +1515,7 @@ def test_liquidity_vacuum(df_markets, symbol, interval):
         'sl_mult': jitter_values([0.92], precision=3, min_value=0.50),
     }
     combinations, original_count = build_param_combinations(param_axes)
-    print(f"   📊 Rozmiar siatki badawczej: {len(combinations)} kombinacji (z {original_count}) | {len(df_markets)} ticków danych L2")
+    log_parameter_search_space(len(combinations), original_count, len(df_markets))
     fast_markets = prepare_fast_markets(df_markets)
     best_results = execute_with_progress(worker_liquidity_vacuum, combinations, fast_markets, os.cpu_count() or 4)
     best_result = select_optimal_result(best_results)
@@ -1511,7 +1571,7 @@ def test_micro_pullback_continuation(df_markets, symbol, interval):
         'sl_mult': jitter_values([0.92], precision=3, min_value=0.50),
     }
     combinations, original_count = build_param_combinations(param_axes)
-    print(f"   📊 Rozmiar siatki badawczej: {len(combinations)} kombinacji (z {original_count}) | {len(df_markets)} ticków danych L2")
+    log_parameter_search_space(len(combinations), original_count, len(df_markets))
     fast_markets = prepare_fast_markets(df_markets)
     best_results = execute_with_progress(worker_micro_pullback_continuation, combinations, fast_markets, os.cpu_count() or 4)
     best_result = select_optimal_result(best_results)
@@ -1570,7 +1630,7 @@ def test_synthetic_arbitrage(df_markets, symbol, interval):
         'sl_mult': jitter_values([0.94], precision=3, min_value=0.50),
     }
     combinations, original_count = build_param_combinations(param_axes)
-    print(f"   📊 Rozmiar siatki badawczej: {len(combinations)} kombinacji (z {original_count}) | {len(df_markets)} ticków danych L2")
+    log_parameter_search_space(len(combinations), original_count, len(df_markets))
     fast_markets = prepare_fast_markets(df_markets)
     best_results = execute_with_progress(worker_synthetic_arbitrage, combinations, fast_markets, os.cpu_count() or 4)
     best_result = select_optimal_result(best_results)
