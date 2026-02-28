@@ -238,6 +238,39 @@
       gap: 12px;
     }
 
+    .log-list {
+      display: grid;
+      gap: 10px;
+      max-height: 440px;
+      overflow-y: auto;
+      padding-right: 4px;
+    }
+
+    .log-entry {
+      display: grid;
+      gap: 6px;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 12px 14px;
+      background: rgba(255, 255, 255, 0.025);
+    }
+
+    .log-time {
+      color: var(--accent-warm);
+      font-family: var(--font-display);
+      font-size: 12px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+
+    .log-message {
+      color: var(--text);
+      font-size: 13px;
+      line-height: 1.45;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
     .card {
       border: 1px solid var(--line);
       border-radius: 16px;
@@ -346,10 +379,17 @@
         <div id="marketsTable"></div>
       </section>
 
-      <section class="panel">
-        <h2>Open Positions</h2>
-        <div id="positionsList" class="list"></div>
-      </section>
+      <div class="stack">
+        <section class="panel">
+          <h2>Open Positions</h2>
+          <div id="positionsList" class="list"></div>
+        </section>
+
+        <section class="panel">
+          <h2>System Logs</h2>
+          <div id="systemLogsList" class="log-list"></div>
+        </section>
+      </div>
     </div>
 
     <div class="layout secondary">
@@ -615,6 +655,21 @@
       });
     }
 
+    function renderSystemLogs(systemLogs) {
+      const root = document.getElementById("systemLogsList");
+      if (!systemLogs.length) {
+        root.innerHTML = '<div class="empty">No recent system events.</div>';
+        return;
+      }
+
+      root.innerHTML = systemLogs.map((entry) => `
+        <article class="log-entry">
+          <div class="log-time">${entry.timestamp || "--:--:--"}</div>
+          <div class="log-message">${entry.message}</div>
+        </article>
+      `).join("");
+    }
+
     function renderServices(services) {
       const root = document.getElementById("servicesList");
       root.innerHTML = services.map((service) => `
@@ -636,6 +691,7 @@
       renderModes(dashboard.session);
       renderMarkets(dashboard.markets);
       renderPositions(dashboard.positions);
+      renderSystemLogs(dashboard.system_logs || []);
       renderStrategies(dashboard.strategies);
       renderServices(dashboard.services);
     }

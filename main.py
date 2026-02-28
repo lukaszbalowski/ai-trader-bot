@@ -148,6 +148,7 @@ LOCAL_STATE = {
     'price_history': {cfg['pair']: deque() for cfg in OBSERVED_CONFIGS},
     'prev_price': {cfg['pair']: 0.0 for cfg in OBSERVED_CONFIGS},
     'polymarket_books': {},
+    'recent_logs': [],
     'session_id': SESSION_ID,
     'paused_markets': initial_paused_markets,
     'market_status': {
@@ -701,6 +702,7 @@ def log(msg):
     RECENT_LOGS.append(timestamped)
     if len(RECENT_LOGS) > 10:
         RECENT_LOGS.pop(0)
+    LOCAL_STATE['recent_logs'] = RECENT_LOGS[:]
     SESSION_LOG_LINES.append(timestamped)
 
 

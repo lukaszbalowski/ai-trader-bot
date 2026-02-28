@@ -11,6 +11,7 @@ from dashboard_models import (
     ServiceStatusSnapshot,
     SessionSnapshot,
     StrategySnapshot,
+    SystemLogSnapshot,
 )
 
 STRATEGY_LABELS = {
@@ -393,6 +394,18 @@ class RuntimeStateStore:
                 )
         return snapshots
 
+    def _build_system_log_snapshots(self, state: dict[str, Any]) -> list[SystemLogSnapshot]:
+        snapshots = []
+        for entry in state.get("recent_logs", []):
+            if not isinstance(entry, str):
+                continue
+            if entry.startswith("[") and "] " in entry:
+                timestamp, message = entry[1:].split("] ", 1)
+            else:
+                timestamp, message = "", entry
+            snapshots.append(SystemLogSnapshot(timestamp=timestamp, message=message))
+        return snapshots
+
     def snapshot(self) -> DashboardSnapshot:
         now_ts = time.time()
         state = self._get_state()
@@ -421,6 +434,7 @@ class RuntimeStateStore:
             ),
             positions=self._build_position_snapshots(trades, live_market_data, now_ts),
             strategies=self._build_strategy_snapshots(trades, trade_history, live_market_data),
+            system_logs=self._build_system_log_snapshots(state),
         )
 
 

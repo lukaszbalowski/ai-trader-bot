@@ -88,6 +88,11 @@ class StrategySnapshot(BaseModel):
     pnl_percent: float = 0.0
 
 
+class SystemLogSnapshot(BaseModel):
+    timestamp: str
+    message: str
+
+
 class DashboardSnapshot(BaseModel):
     generated_at: str
     session: SessionSnapshot
@@ -95,6 +100,7 @@ class DashboardSnapshot(BaseModel):
     markets: list[MarketSnapshot] = Field(default_factory=list)
     positions: list[PositionSnapshot] = Field(default_factory=list)
     strategies: list[StrategySnapshot] = Field(default_factory=list)
+    system_logs: list[SystemLogSnapshot] = Field(default_factory=list)
 
 
 class CommandResult(BaseModel):
