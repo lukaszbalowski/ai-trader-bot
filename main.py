@@ -67,6 +67,43 @@ FULL_NAMES = {
 
 SESSION_ID = f"sess_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
 
+OBSERVED_MARKET_TEMPLATES = [
+    {'symbol': 'BTC', 'pair': 'BTCUSDT', 'timeframe': '5m', 'interval': 300, 'decimals': 2, 'offset': 0.0},
+    {'symbol': 'ETH', 'pair': 'ETHUSDT', 'timeframe': '5m', 'interval': 300, 'decimals': 2, 'offset': 0.0},
+    {'symbol': 'SOL', 'pair': 'SOLUSDT', 'timeframe': '5m', 'interval': 300, 'decimals': 2, 'offset': 0.0},
+    {'symbol': 'XRP', 'pair': 'XRPUSDT', 'timeframe': '5m', 'interval': 300, 'decimals': 4, 'offset': 0.0},
+    {'symbol': 'BTC', 'pair': 'BTCUSDT', 'timeframe': '15m', 'interval': 900, 'decimals': 2, 'offset': 0.0},
+    {'symbol': 'ETH', 'pair': 'ETHUSDT', 'timeframe': '15m', 'interval': 900, 'decimals': 2, 'offset': 0.0},
+    {'symbol': 'SOL', 'pair': 'SOLUSDT', 'timeframe': '15m', 'interval': 900, 'decimals': 2, 'offset': 0.0},
+    {'symbol': 'XRP', 'pair': 'XRPUSDT', 'timeframe': '15m', 'interval': 900, 'decimals': 4, 'offset': 0.0},
+    {'symbol': 'BTC', 'pair': 'BTCUSDT', 'timeframe': '1h', 'interval': 3600, 'decimals': 2, 'offset': 0.0},
+    {'symbol': 'ETH', 'pair': 'ETHUSDT', 'timeframe': '1h', 'interval': 3600, 'decimals': 2, 'offset': 0.0},
+    {'symbol': 'SOL', 'pair': 'SOLUSDT', 'timeframe': '1h', 'interval': 3600, 'decimals': 2, 'offset': 0.0},
+    {'symbol': 'XRP', 'pair': 'XRPUSDT', 'timeframe': '1h', 'interval': 3600, 'decimals': 4, 'offset': 0.0},
+    {'symbol': 'BTC', 'pair': 'BTCUSDT', 'timeframe': '4h', 'interval': 14400, 'decimals': 2, 'offset': 0.0},
+    {'symbol': 'ETH', 'pair': 'ETHUSDT', 'timeframe': '4h', 'interval': 14400, 'decimals': 2, 'offset': 0.0},
+    {'symbol': 'SOL', 'pair': 'SOLUSDT', 'timeframe': '4h', 'interval': 14400, 'decimals': 2, 'offset': 0.0},
+    {'symbol': 'XRP', 'pair': 'XRPUSDT', 'timeframe': '4h', 'interval': 14400, 'decimals': 4, 'offset': 0.0},
+]
+
+
+def market_key(cfg):
+    return f"{cfg['symbol']}_{cfg['timeframe']}"
+
+
+def has_tradeable_strategies(cfg):
+    return any(cfg.get(name) for name in ('kinetic_sniper', 'momentum', 'mid_arb', 'otm'))
+
+
+def build_observed_configs(tracked_configs):
+    tracked_by_key = {market_key(cfg): cfg for cfg in tracked_configs}
+    observed_configs = []
+    for template in OBSERVED_MARKET_TEMPLATES:
+        cfg = dict(template)
+        cfg.update(tracked_by_key.get(market_key(template), {}))
+        observed_configs.append(cfg)
+    return observed_configs
+
 # ==========================================
 # LOAD TRACKED CONFIGS FROM JSON
 # ==========================================
@@ -78,23 +115,28 @@ except Exception as e:
     print(f"❌ Critical Error: Unable to load {CONFIG_FILE}. Ensure the file exists.\nDetails: {e}")
     sys.exit(1)
 
+OBSERVED_CONFIGS = build_observed_configs(TRACKED_CONFIGS)
+
 MARKET_KEYS = list(string.ascii_lowercase)
-for idx, cfg in enumerate(TRACKED_CONFIGS):
+for idx, cfg in enumerate(OBSERVED_CONFIGS):
     cfg['ui_key'] = MARKET_KEYS[idx] if idx < len(MARKET_KEYS) else str(idx)
 
 # ==========================================
 # LOCAL STATE INITIALIZATION (SAFE START)
 # ==========================================
-initial_paused_markets = set([f"{cfg['symbol']}_{cfg['timeframe']}" for cfg in TRACKED_CONFIGS])
+initial_paused_markets = set([market_key(cfg) for cfg in OBSERVED_CONFIGS])
 
 LOCAL_STATE = {
-    'binance_live_price': {cfg['pair']: 0.0 for cfg in TRACKED_CONFIGS},
-    'price_history': {cfg['pair']: deque() for cfg in TRACKED_CONFIGS}, 
-    'prev_price': {cfg['pair']: 0.0 for cfg in TRACKED_CONFIGS},
+    'binance_live_price': {cfg['pair']: 0.0 for cfg in OBSERVED_CONFIGS},
+    'price_history': {cfg['pair']: deque() for cfg in OBSERVED_CONFIGS},
+    'prev_price': {cfg['pair']: 0.0 for cfg in OBSERVED_CONFIGS},
     'polymarket_books': {},
     'session_id': SESSION_ID,
     'paused_markets': initial_paused_markets,
-    'market_status': {f"{cfg['symbol']}_{cfg['timeframe']}": "[paused]" for cfg in TRACKED_CONFIGS}
+    'market_status': {
+        market_key(cfg): "[paused] [no strategies]" if not has_tradeable_strategies(cfg) else "[paused]"
+        for cfg in OBSERVED_CONFIGS
+    }
 }
 
 AVAILABLE_TRADE_IDS = list(range(100))
@@ -605,7 +647,7 @@ def perform_tech_dump():
         log_error("Tech Dump Error", e)
 
 def get_market_tf_key_by_ui(ui_key):
-    for cfg in TRACKED_CONFIGS:
+    for cfg in OBSERVED_CONFIGS:
         if cfg['ui_key'] == ui_key:
             return f"{cfg['symbol']}_{cfg['timeframe']}"
     return None
@@ -641,12 +683,19 @@ def stop_market(ui_key):
     tf_key = get_market_tf_key_by_ui(ui_key)
     if tf_key:
         LOCAL_STATE['paused_markets'].add(tf_key)
-        LOCAL_STATE['market_status'][tf_key] = "[paused]"
+        cfg = next((c for c in OBSERVED_CONFIGS if market_key(c) == tf_key), None)
+        LOCAL_STATE['market_status'][tf_key] = "[paused] [no strategies]" if cfg and not has_tradeable_strategies(cfg) else "[paused]"
         close_market_trades(ui_key, reason="MARKET STOP (EMERGENCY LIQUIDATION)")
         log(f"🛑 [MANUAL] Market [{ui_key}] {tf_key} operations PAUSED.")
 
 def restart_market(ui_key):
     tf_key = get_market_tf_key_by_ui(ui_key)
+    cfg = next((c for c in OBSERVED_CONFIGS if market_key(c) == tf_key), None)
+    if cfg and not has_tradeable_strategies(cfg):
+        LOCAL_STATE['paused_markets'].add(tf_key)
+        LOCAL_STATE['market_status'][tf_key] = "[paused] [no strategies]"
+        log(f"ℹ️ [MANUAL] Market [{ui_key}] {tf_key} remains paused. No strategies assigned.")
+        return
     if tf_key and tf_key in LOCAL_STATE['paused_markets']:
         LOCAL_STATE['paused_markets'].remove(tf_key)
         LOCAL_STATE['market_status'][tf_key] = "[running]"
@@ -746,7 +795,7 @@ async def ui_updater_worker():
                 log(f"🛑 CRITICAL: Drawdown Limit reached! Capital dropped below {(1.0 - DRAWDOWN_LIMIT)*100}%")
                 asyncio.create_task(liquidate_all_and_quit())
             render_dashboard(
-                TRACKED_CONFIGS, LOCAL_STATE, ACTIVE_MARKETS, PAPER_TRADES, 
+                OBSERVED_CONFIGS, LOCAL_STATE, ACTIVE_MARKETS, PAPER_TRADES,
                 LIVE_MARKET_DATA, PORTFOLIO_BALANCE, INITIAL_BALANCE, RECENT_LOGS, ACTIVE_ERRORS, TRADE_HISTORY
             )
         except Exception as e:
@@ -761,7 +810,7 @@ async def liquidate_all_and_quit():
             live_bid = LIVE_MARKET_DATA.get(trade['market_id'], {}).get(f"{trade['direction']}_SELL", 0.0)
             close_trade(trade, live_bid, "EMERGENCY CLOSE (Liquidation/Drawdown)")
         await flush_to_db()
-    render_dashboard(TRACKED_CONFIGS, LOCAL_STATE, ACTIVE_MARKETS, PAPER_TRADES, LIVE_MARKET_DATA, PORTFOLIO_BALANCE, INITIAL_BALANCE, RECENT_LOGS, ACTIVE_ERRORS, TRADE_HISTORY)
+    render_dashboard(OBSERVED_CONFIGS, LOCAL_STATE, ACTIVE_MARKETS, PAPER_TRADES, LIVE_MARKET_DATA, PORTFOLIO_BALANCE, INITIAL_BALANCE, RECENT_LOGS, ACTIVE_ERRORS, TRADE_HISTORY)
     os._exit(1)
 
 # ==========================================
@@ -886,7 +935,7 @@ async def calibrate_market_offset(market_id: str, strike_price: float):
 # 4. WEBSOCKETS (BINANCE & CLOB)
 # ==========================================
 async def binance_ws_listener():
-    streams = list(set([cfg['pair'].lower() + "@ticker" for cfg in TRACKED_CONFIGS]))
+    streams = list(set([cfg['pair'].lower() + "@ticker" for cfg in OBSERVED_CONFIGS]))
     stream_url = "/".join(streams)
     url = f"wss://stream.binance.com:9443/stream?streams={stream_url}"
     while True:
@@ -1157,7 +1206,8 @@ async def fetch_and_track_markets():
                 now_et = datetime.now(tz_et)
                 now_ts = int(now_et.timestamp())
                 
-                for config in TRACKED_CONFIGS:
+                for config in OBSERVED_CONFIGS:
+                    trading_enabled = has_tradeable_strategies(config)
                     pair = config['pair']
                     live_p = LOCAL_STATE['binance_live_price'].get(pair, 0.0)
                     if live_p == 0.0: continue
@@ -1200,13 +1250,13 @@ async def fetch_and_track_markets():
                                 if f'timing_{pw_m_id}' in LOCAL_STATE:
                                     LOCAL_STATE[f'timing_{pw_m_id}']['is_pre_warming'] = False
 
-                                if timeframe_key in LOCAL_STATE['paused_markets']:
+                                if timeframe_key in LOCAL_STATE['paused_markets'] and trading_enabled:
                                     LOCAL_STATE['paused_markets'].remove(timeframe_key)
-                                LOCAL_STATE['market_status'][timeframe_key] = "[running]"
+                                LOCAL_STATE['market_status'][timeframe_key] = "[running]" if trading_enabled else "[paused] [no strategies]"
                             else:
                                 del ACTIVE_MARKETS[timeframe_key]
                                 LOCAL_STATE['paused_markets'].add(timeframe_key)
-                                LOCAL_STATE['market_status'][timeframe_key] = "[paused] [searching next]"
+                                LOCAL_STATE['market_status'][timeframe_key] = "[paused] [searching next]" if trading_enabled else "[paused] [no strategies]"
 
                     # --- 2. API FETCHING LOGIC ---
                     is_pre_warming_phase = (sec_left <= 60) and (sec_left > 0)
@@ -1289,10 +1339,13 @@ async def fetch_and_track_markets():
                                 log(f"🔥 [PRE-WARMING] Subscribed to incoming market {config['symbol']} {config['timeframe']} before opening!")
                             else:
                                 ACTIVE_MARKETS[timeframe_key] = {'m_id': fetched_m_id, 'target': live_p, 'expire_ts': target_ts_to_fetch + interval_s}
-                                if is_clean_start:
+                                if is_clean_start and trading_enabled:
                                     if timeframe_key in LOCAL_STATE['paused_markets']:
                                         LOCAL_STATE['paused_markets'].remove(timeframe_key)
                                     LOCAL_STATE['market_status'][timeframe_key] = "[running]"
+                                elif not trading_enabled:
+                                    LOCAL_STATE['paused_markets'].add(timeframe_key)
+                                    LOCAL_STATE['market_status'][timeframe_key] = "[paused] [no strategies]"
                                 else:
                                     LOCAL_STATE['market_status'][timeframe_key] = "[paused] [waiting for next]"
 
