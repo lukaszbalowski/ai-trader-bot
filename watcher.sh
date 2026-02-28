@@ -4,6 +4,11 @@
 
 COMMAND=$1
 ARG=$2
+QUICK_FLAG=""
+
+if [[ "$2" == "quick" || "$3" == "quick" ]]; then
+  QUICK_FLAG="--quick"
+fi
 
 # Create data directory if it doesn't exist to avoid mount errors
 mkdir -p data
@@ -33,12 +38,12 @@ case "$COMMAND" in
     
   backtest)
     echo "📊 Starting Backtester (Level 2 Analysis + Post Mortem) for the LATEST session..."
-    docker run --rm -it -v "$(pwd)/data:/app/data" ai-trader python backtester.py
+    docker run --rm -it -v "$(pwd)/data:/app/data" ai-trader python backtester.py $QUICK_FLAG
     ;;
     
   backtest-all)
     echo "📈 Starting Backtester on FULL historical database..."
-    docker run --rm -it -v "$(pwd)/data:/app/data" ai-trader python backtester.py --all-history
+    docker run --rm -it -v "$(pwd)/data:/app/data" ai-trader python backtester.py --all-history $QUICK_FLAG
     ;;
     
   fast-track)
@@ -68,7 +73,9 @@ case "$COMMAND" in
     echo "  paper [amount]   - Starts the PAPER TRADING Bot (e.g., ./watcher.sh paper 500)"
     echo "  live             - Starts the LIVE TRADING Bot (uses real wallet balance)"
     echo "  backtest         - Runs grid simulation and updates strategies from the latest session"
+    echo "  backtest quick   - Runs accelerated Monte Carlo sampling on the latest session"
     echo "  backtest-all     - Runs grid simulation on the ENTIRE historical database"
+    echo "  backtest-all quick - Runs accelerated Monte Carlo sampling on the entire historical database"
     echo "  fast-track       - Dumps best historical settings to tracked_configs.json"
     echo "  trades           - Exports all trades from the last 24h with orderbook snapshots to CSV"
     echo "  test-executor    - Runs the Clob API execution test"

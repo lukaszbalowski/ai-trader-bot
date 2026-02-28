@@ -20,7 +20,7 @@ def render_dashboard(configs, state, active_markets, trades, live_data, balance,
     out.append(f"{BLD}{CYN}--- MARKETS (LIVE) ---{RST}")
     
     def market_sort_key(cfg):
-        tf_order = {'1h': 0, '15m': 1, '5m': 2}
+        tf_order = {'4h': 0, '1h': 1, '15m': 2, '5m': 3}
         sym_order = {'XRP': 0, 'SOL': 1, 'ETH': 2, 'BTC': 3}
         return (tf_order.get(cfg['timeframe'], 99), sym_order.get(cfg['symbol'], 99))
         

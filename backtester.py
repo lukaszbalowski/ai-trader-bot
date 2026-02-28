@@ -11,11 +11,30 @@ import uuid
 import math
 import traceback
 import gc
+import builtins
 from datetime import datetime
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
 PARAM_JITTER_PCTS = (0.10, 0.15)
 MONTE_CARLO_LIMIT = 1_000_000
+TERMINAL_LOG_BUFFER = []
+QUICK_MODE = False
+
+
+def print(*args, **kwargs):
+    sep = kwargs.get("sep", " ")
+    end = kwargs.get("end", "\n")
+    TERMINAL_LOG_BUFFER.append(sep.join(str(arg) for arg in args) + end)
+    builtins.print(*args, **kwargs)
+
+
+def save_terminal_summary_txt():
+    os.makedirs("data/backtest_reports", exist_ok=True)
+    report_file = f"data/backtest_reports/backtest_result_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+    with open(report_file, "w", encoding="utf-8") as f:
+        f.write("".join(TERMINAL_LOG_BUFFER))
+    print(f"📝 Zapisano pełny log testu do {report_file}.")
+    return report_file
 
 # ==========================================
 # 0A. ALPHA VAULT (OPTIMIZATION HISTORY)
@@ -359,11 +378,33 @@ def select_optimal_result(best_results):
         return absolute_best
     return valid_results[0]
 
+def get_sampling_target(total, default_limit=MONTE_CARLO_LIMIT):
+    if total <= 0:
+        return 0, None
+    if QUICK_MODE:
+        if 100_001 <= total <= 1_000_000:
+            return 100_000, "quick_100k"
+        if total > 1_000_000:
+            return max(1, int(total * 0.10)), "quick_10pct"
+        return total, None
+    if total > default_limit:
+        return default_limit, "default_limit"
+    return total, None
+
+def format_sampling_reason(reason, total, sample_size):
+    if reason == "quick_100k":
+        return f"Quick mode: siatka badawcza ({total}) mieści się w przedziale 100 001-1 000 000. Losuję 100 000 prób Monte Carlo."
+    if reason == "quick_10pct":
+        pct = (sample_size / total) * 100 if total else 0
+        return f"Quick mode: siatka badawcza ({total}) przekracza 1 000 000. Losuję {sample_size} prób Monte Carlo ({pct:.1f}% całości)."
+    return f"Siatka badawcza ({total}) przekracza limit. Uruchamiam metodę Monte Carlo (losuję {sample_size} prób)..."
+
 def apply_monte_carlo(combinations, limit=1000000):
     total = len(combinations)
-    if total > limit:
-        print(f"   ⚠️ Siatka badawcza ({total}) przekracza limit. Uruchamiam metodę Monte Carlo (losuję 1 000 000 prób)...")
-        sampled = random.sample(combinations, limit)
+    sample_size, reason = get_sampling_target(total, default_limit=limit)
+    if reason:
+        print(f"   ⚠️ {format_sampling_reason(reason, total, sample_size)}")
+        sampled = random.sample(combinations, sample_size)
         # Szybkie odzyskiwanie pamięci RAM
         del combinations
         gc.collect()
@@ -396,7 +437,8 @@ def build_param_combinations(param_axes, fixed_params=None, limit=MONTE_CARLO_LI
     total = 1
     for axis in axes:
         total *= max(1, len(axis))
-    if total <= limit:
+    sample_size, reason = get_sampling_target(total, default_limit=limit)
+    if not reason:
         combinations = []
         for values in itertools.product(*axes):
             combo = dict(zip(keys, values))
@@ -404,11 +446,11 @@ def build_param_combinations(param_axes, fixed_params=None, limit=MONTE_CARLO_LI
             combinations.append(combo)
         return combinations, total
 
-    print(f"   ⚠️ Siatka badawcza ({total}) przekracza limit. Uruchamiam metodę Monte Carlo (losuję 1 000 000 prób)...")
+    print(f"   ⚠️ {format_sampling_reason(reason, total, sample_size)}")
     sampled = set()
-    max_attempts = limit * 5
+    max_attempts = max(sample_size * 5, 1_000)
     attempts = 0
-    while len(sampled) < limit and attempts < max_attempts:
+    while len(sampled) < sample_size and attempts < max_attempts:
         sampled.add(tuple(random.choice(axis) for axis in axes))
         attempts += 1
     combinations = []
@@ -1589,6 +1631,7 @@ def generate_tracked_configs_output(optimizations):
         with open(config_file, "w", encoding="utf-8") as f:
             json.dump(tracked_configs, f, indent=4)
         print(f"✅ Poprawnie zapisano zoptymalizowane parametry do {config_file}.")
+        save_terminal_summary_txt()
     except Exception as e:
         print(f"❌ Błąd zapisu pliku konfiguracyjnego: {e}")
 
@@ -1631,7 +1674,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Watcher v10.29 Alpha Vault Backtester (HYPER-DENSE + MONTE CARLO)")
     parser.add_argument('--fast-track', action='store_true', help="Pomiń testowanie i zbuduj tracked_configs z najlepszych historycznych parametrów")
     parser.add_argument('--all-history', action='store_true', help="Użyj pełnej bazy historycznej danych L2 z SQLite")
+    parser.add_argument('--quick', action='store_true', help="Uruchom przyspieszone próbkowanie Monte Carlo dla dużych siatek parametrów")
     args = parser.parse_args()
+    QUICK_MODE = args.quick
 
     init_history_db()
 
@@ -1639,6 +1684,8 @@ if __name__ == "__main__":
         optimizations = compile_best_from_vault()
         generate_tracked_configs_output(optimizations)
     else:
+        if args.quick:
+            print("⚡ Quick mode aktywny: duże siatki parametrów będą próbkowane w trybie przyspieszonym.")
         run_post_mortem_analysis(all_history=args.all_history)
         print("\n⏳ Wczytywanie bazy danych SQLite i formatowanie macierzy Numpy dla HYPER-DENSE GRID SEARCH...")
         time_s = time.time()

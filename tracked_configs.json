@@ -6,26 +6,26 @@
         "interval": 300,
         "decimals": 2,
         "offset": 0.0,
-      "kinetic_sniper": {
+        "kinetic_sniper": {
             "window_ms": 1000,
-            "trigger_pct": 0.00015,
+            "trigger_pct": 0.0002,
             "max_target_dist": 35.0,
-            "max_price": 0.85,
-            "max_slippage": 0.025,
+            "max_price": 0.7,
+            "max_slippage": 0.04,
             "id": "btc_5m_kin_opt"
         },
         "momentum": {
-            "delta": 15.0,
-            "max_p": 0.74,
-            "win_start": 86,
-            "win_end": 34,
+            "delta": 4.0,
+            "max_p": 0.95,
+            "win_start": 76,
+            "win_end": 6,
             "id": "btc_5m_mom_opt"
         },
         "otm": {
-            "wr": 50.0,
-            "max_p": 0.15,
-            "win_start": 86,
-            "win_end": 34,
+            "wr": 33.3,
+            "max_p": 0.02,
+            "win_start": 76,
+            "win_end": 22,
             "id": "btc_5m_otm_opt"
         }
     },
@@ -38,9 +38,9 @@
         "offset": 0.0,
         "kinetic_sniper": {
             "window_ms": 1000,
-            "trigger_pct": 0.0005,
-            "max_price": 0.85,
-            "max_slippage": 0.025,
+            "trigger_pct": 0.0002,
+            "max_price": 0.78,
+            "max_slippage": 0.05,
             "id": "eth_5m_kin_opt"
         }
     },
@@ -51,161 +51,19 @@
         "interval": 300,
         "decimals": 2,
         "offset": 0.0,
-        "kinetic_sniper": {
-            "window_ms": 1000,
-            "trigger_pct": 0.0005,
-            "max_price": 0.85,
-            "max_slippage": 0.025,
-            "id": "sol_5m_kin_opt"
-        },
         "mid_arb": {
             "delta": 0.01,
-            "max_p": 0.45,
-            "win_start": 190,
-            "win_end": 30,
+            "max_p": 0.47,
+            "win_start": 620,
+            "win_end": 142,
             "id": "sol_5m_arb_opt"
         },
         "momentum": {
-            "delta": 0.02,
-            "max_p": 0.75,
-            "win_start": 86,
-            "win_end": 30,
+            "delta": 0.01,
+            "max_p": 0.58,
+            "win_start": 104,
+            "win_end": 44,
             "id": "sol_5m_mom_opt"
-        }
-    },
-    {
-        "symbol": "XRP",
-        "pair": "XRPUSDT",
-        "timeframe": "5m",
-        "interval": 300,
-        "decimals": 4,
-        "offset": 0.0,
-        "kinetic_sniper": {
-            "window_ms": 1000,
-            "trigger_pct": 0.0005,
-            "max_price": 0.85,
-            "max_slippage": 0.025,
-            "id": "xrp_5m_kin_opt"
-        }
-    },
-    {
-        "symbol": "BTC",
-        "pair": "BTCUSDT",
-        "timeframe": "15m",
-        "interval": 900,
-        "decimals": 2,
-        "offset": 0.0,
-        "kinetic_sniper": {
-            "window_ms": 1000,
-            "trigger_pct": 0.0005,
-            "max_price": 0.85,
-            "max_slippage": 0.025,
-            "id": "btc_15m_kin_opt"
-        }
-    },
-    {
-        "symbol": "ETH",
-        "pair": "ETHUSDT",
-        "timeframe": "15m",
-        "interval": 900,
-        "decimals": 2,
-        "offset": 0.0,
-        "kinetic_sniper": {
-            "window_ms": 1000,
-            "trigger_pct": 0.0005,
-            "max_price": 0.85,
-            "max_slippage": 0.025,
-            "id": "eth_15m_kin_opt"
-        }
-    },
-    {
-        "symbol": "SOL",
-        "pair": "SOLUSDT",
-        "timeframe": "15m",
-        "interval": 900,
-        "decimals": 2,
-        "offset": 0.0,
-        "kinetic_sniper": {
-            "window_ms": 1000,
-            "trigger_pct": 0.0005,
-            "max_price": 0.85,
-            "max_slippage": 0.025,
-            "id": "sol_15m_kin_opt"
-        }
-    },
-    {
-        "symbol": "XRP",
-        "pair": "XRPUSDT",
-        "timeframe": "15m",
-        "interval": 900,
-        "decimals": 4,
-        "offset": 0.0,
-        "kinetic_sniper": {
-            "window_ms": 1000,
-            "trigger_pct": 0.0005,
-            "max_price": 0.85,
-            "max_slippage": 0.025,
-            "id": "xrp_15m_kin_opt"
-        }
-    },
-    {
-        "symbol": "BTC",
-        "pair": "BTCUSDT",
-        "timeframe": "1h",
-        "interval": 3600,
-        "decimals": 2,
-        "offset": 0.0,
-        "kinetic_sniper": {
-            "window_ms": 1000,
-            "trigger_pct": 0.0005,
-            "max_price": 0.85,
-            "max_slippage": 0.025,
-            "id": "btc_1h_kin_opt"
-        }
-    },
-    {
-        "symbol": "ETH",
-        "pair": "ETHUSDT",
-        "timeframe": "1h",
-        "interval": 3600,
-        "decimals": 2,
-        "offset": 0.0,
-        "kinetic_sniper": {
-            "window_ms": 1000,
-            "trigger_pct": 0.0005,
-            "max_price": 0.85,
-            "max_slippage": 0.025,
-            "id": "eth_1h_kin_opt"
-        }
-    },
-    {
-        "symbol": "SOL",
-        "pair": "SOLUSDT",
-        "timeframe": "1h",
-        "interval": 3600,
-        "decimals": 2,
-        "offset": 0.0,
-        "kinetic_sniper": {
-            "window_ms": 1000,
-            "trigger_pct": 0.0005,
-            "max_price": 0.85,
-            "max_slippage": 0.025,
-            "id": "sol_1h_kin_opt"
-        }
-    },
-    {
-        "symbol": "XRP",
-        "pair": "XRPUSDT",
-        "timeframe": "1h",
-        "interval": 3600,
-        "decimals": 4,
-        "offset": 0.0,
-        "kinetic_sniper": {
-            "window_ms": 1000,
-            "trigger_pct": 0.0005,
-            "max_price": 0.85,
-            "max_slippage": 0.025,
-            "id": "xrp_1h_kin_opt"
         }
     }
 ]

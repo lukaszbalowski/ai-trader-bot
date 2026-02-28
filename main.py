@@ -10,6 +10,7 @@ import argparse
 import traceback
 import uuid
 import string
+from math import floor
 from collections import deque
 from datetime import datetime, timedelta
 import pytz
@@ -51,6 +52,7 @@ KINETIC_SNIPER_SL_DROP = 0.90
 KINETIC_SNIPER_TIMEOUT = 10.0  
 LOSS_RECOVERY_TIMEOUT = 10.0
 POSITION_DUST_SHARES = 0.001
+MIN_MARKET_SELL_SHARES = 0.01
 CLOSE_RECONCILE_GRACE_SEC = 4.0
 CLOSE_PENDING_TIMEOUT = 20.0
 ORPHAN_SCAN_INTERVAL = 15.0
@@ -251,6 +253,21 @@ def clear_pending_close_state(trade):
     trade.pop('pending_close_reported_price', None)
     trade.pop('pending_close_reported_value', None)
 
+def normalize_market_sell_shares(shares):
+    if shares <= 0:
+        return 0.0
+    return floor(shares * 100) / 100.0
+
+def mark_trade_close_blocked(trade, reason):
+    clear_pending_close_state(trade)
+    trade['close_blocked'] = True
+    trade['close_blocked_reason'] = reason
+    log(f"🧱 [LIVE] Close blocked for {trade['id']}. {reason} Waiting for resolution.")
+
+def clear_trade_close_blocked(trade):
+    trade.pop('close_blocked', None)
+    trade.pop('close_blocked_reason', None)
+
 def get_trade_sell_price(trade):
     if trade['market_id'] in LIVE_MARKET_DATA:
         price = LIVE_MARKET_DATA[trade['market_id']].get(f"{trade['direction']}_SELL", 0.0)
@@ -323,6 +340,7 @@ def apply_partial_close_fill(trade, remaining_shares, execution_price, reason):
     pnl = realized_value - realized_cost
     trade['shares'] = remaining_shares
     trade['invested'] = max(trade['invested'] - realized_cost, 0.0)
+    clear_trade_close_blocked(trade)
     clear_pending_close_state(trade)
     PORTFOLIO_BALANCE += realized_value
     log(f"🪓 [LIVE] Partial close for {trade['id']}. Sold {sold_shares:.4f} shares, remaining {remaining_shares:.4f}. PnL: ${pnl:+.2f}")
@@ -340,6 +358,8 @@ def finalize_trade_close(trade, close_price, reason):
     pnl = return_value - trade['invested']
     PORTFOLIO_BALANCE += return_value
     history_trade = {k: v for k, v in trade.items() if k != 'closing_pending'}
+    history_trade.pop('close_blocked', None)
+    history_trade.pop('close_blocked_reason', None)
     TRADE_HISTORY.append({'pnl': pnl, 'reason': reason, **history_trade})
     PAPER_TRADES.remove(trade)
     AVAILABLE_TRADE_IDS.append(trade['short_id'])
@@ -361,6 +381,24 @@ def finalize_trade_close(trade, close_price, reason):
         trade['entry_price'], trade['entry_time'], close_price, datetime.now().isoformat(), pnl, reason, SESSION_ID
     ))
     cleanup_market_state_if_unused(trade['market_id'])
+
+def handle_market_resolved_event(data):
+    market_id = str(data.get('id') or data.get('market_id') or '')
+    winning_asset_id = str(data.get('winning_asset_id') or '')
+    if not market_id or not winning_asset_id:
+        return
+
+    for trade in PAPER_TRADES[:]:
+        if str(trade.get('market_id')) != market_id:
+            continue
+
+        token_id = get_trade_token_id(trade)
+        if not token_id:
+            continue
+
+        close_price = 1.0 if str(token_id) == winning_asset_id else 0.0
+        outcome = "WON" if close_price > 0 else "LOST"
+        close_trade(trade, close_price, f"RESOLVED: {outcome} (Market WS)")
 
 async def live_buy_worker(trade_id, token_id, size_usd, async_client: AsyncClobClient):
     buy_args = MarketOrderArgs(token_id=token_id, amount=size_usd, side="BUY")
@@ -437,8 +475,21 @@ async def live_sell_worker(trade_id, token_id, expected_gross_shares, async_clie
             rollback_failed_close(trade_id, "No synced balance available for SELL.")
             return
 
-        sell_args = MarketOrderArgs(token_id=token_id, amount=sell_amount, side="SELL")
-        log(f"⚡ [LIVE] Dispatching FAK SELL Order ({sell_amount:.6f} shares) for {trade_id}...")
+        normalized_sell_amount = normalize_market_sell_shares(sell_amount)
+        if normalized_sell_amount < MIN_MARKET_SELL_SHARES:
+            trade = get_trade_by_id(trade_id)
+            reason = (
+                f"Position size {sell_amount:.6f} shares is below the minimum sellable size "
+                f"({MIN_MARKET_SELL_SHARES:.2f}) after SDK rounding."
+            )
+            if trade:
+                mark_trade_close_blocked(trade, reason)
+            else:
+                rollback_failed_close(trade_id, reason)
+            return
+
+        sell_args = MarketOrderArgs(token_id=token_id, amount=normalized_sell_amount, side="SELL")
+        log(f"⚡ [LIVE] Dispatching FAK SELL Order ({normalized_sell_amount:.6f} shares) for {trade_id}...")
         sell_res = await async_client.execute_market_order(sell_args)
         
         if sell_res.get("success"):
@@ -447,6 +498,7 @@ async def live_sell_worker(trade_id, token_id, expected_gross_shares, async_clie
                 if trade['id'] == trade_id:
                     trade['close_clob_order_id'] = clob_order_id
                     trade['close_submitted_ts'] = time.time()
+                    clear_trade_close_blocked(trade)
                     break
             
             raw_taking = float(sell_res.get("takingAmount", 0)) 
@@ -479,6 +531,15 @@ async def live_sell_worker(trade_id, token_id, expected_gross_shares, async_clie
             log(f"🔌 [LIVE] Network timeout / API dropped request for SELL {trade_id}.")
         elif "no orders found" in err_str:
              log(f"⚠️ [LIVE] Liquidity sniped by faster bot while selling {trade_id}. FAK order dropped gracefully.")
+        elif "invalid amounts" in err_str:
+            trade = get_trade_by_id(trade_id)
+            reason = (
+                f"Exchange rejected SELL because the final maker/taker amounts rounded to zero "
+                f"for {expected_gross_shares:.6f} shares."
+            )
+            if trade:
+                mark_trade_close_blocked(trade, reason)
+                return
         else:
             log_error(f"Live SELL Fatal Exception {trade_id}", e)
         rollback_failed_close(trade_id, str(e)[:120])
@@ -529,7 +590,9 @@ def perform_tech_dump():
             "pre_warming_markets": PRE_WARMING_MARKETS,
             "live_market_data": LIVE_MARKET_DATA,
             "paper_trades": PAPER_TRADES,
-            "binance_live": LOCAL_STATE['binance_live_price']
+            "binance_live": LOCAL_STATE['binance_live_price'],
+            "recent_logs": RECENT_LOGS,
+            "active_errors": ACTIVE_ERRORS
         }
         
         with open(filename, "w", encoding="utf-8") as f:
@@ -756,6 +819,8 @@ def close_trade(trade, close_price, reason):
         return
 
     if TRADING_MODE == 'live' and ASYNC_CLOB_CLIENT and "Oracle Settlement" not in reason and "RESOLVED" not in reason:
+        if trade.get('close_blocked'):
+            return
         token_id = get_trade_token_id(trade)
         if not token_id:
             log(f"⚠️ [LIVE] Missing token_id for close of {trade['id']}. Position kept open for monitoring.")
@@ -891,6 +956,14 @@ async def polymarket_ws_listener():
                                     LOCAL_STATE['polymarket_books'][t_id] = {'bids': {}, 'asks': {}}
                                     for bid in data.get('bids', []): LOCAL_STATE['polymarket_books'][t_id]['bids'][float(bid['price'])] = float(bid['size'])
                                     for ask in data.get('asks', []): LOCAL_STATE['polymarket_books'][t_id]['asks'][float(ask['price'])] = float(ask['size'])
+
+                            if event_type == 'tick_size_change':
+                                t_id = data.get('asset_id')
+                                if t_id and ASYNC_CLOB_CLIENT:
+                                    ASYNC_CLOB_CLIENT.client.clear_tick_size_cache(t_id)
+
+                            if event_type == 'market_resolved':
+                                handle_market_resolved_event(data)
                             
                             if event_type == 'price_change' or 'price_changes' in data:
                                 for change in data.get('price_changes', []):
@@ -1009,6 +1082,10 @@ async def live_position_reconciliation_worker():
                     continue
 
                 actual_balance = await ASYNC_CLOB_CLIENT.get_actual_balance(token_id)
+
+                if trade.get('close_blocked') and actual_balance >= MIN_MARKET_SELL_SHARES:
+                    clear_trade_close_blocked(trade)
+                    log(f"♻️ [LIVE] Close re-enabled for {trade['id']} after balance increased to {actual_balance:.6f} shares.")
 
                 if trade.get('closing_pending'):
                     original_shares = trade.get('pending_close_initial_shares', trade['shares'])
