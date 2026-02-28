@@ -50,6 +50,10 @@ TAKE_PROFIT_MULTIPLIER = 3.0
 KINETIC_SNIPER_SL_DROP = 0.90  
 KINETIC_SNIPER_TIMEOUT = 10.0  
 LOSS_RECOVERY_TIMEOUT = 10.0
+POSITION_DUST_SHARES = 0.001
+CLOSE_RECONCILE_GRACE_SEC = 4.0
+CLOSE_PENDING_TIMEOUT = 20.0
+ORPHAN_SCAN_INTERVAL = 15.0
 
 SANITY_THRESHOLDS = {
     'BTC': 0.04, 'ETH': 0.05, 'SOL': 0.08, 'XRP': 0.15
@@ -231,17 +235,102 @@ def cleanup_market_state_if_unused(market_id):
     LOCKED_PRICES.pop(market_id, None)
     MARKET_CACHE.pop(market_id, None)
 
-def rollback_failed_close(trade_id, details=""):
-    trade = get_trade_by_id(trade_id)
-    if not trade or not trade.get('closing_pending'):
-        return
+def clear_pending_close_state(trade):
     trade.pop('closing_pending', None)
     trade.pop('pending_close_price', None)
     trade.pop('pending_close_reason', None)
     trade.pop('close_requested_at', None)
+    trade.pop('close_requested_ts', None)
+    trade.pop('close_submitted_ts', None)
     trade.pop('close_clob_order_id', None)
+    trade.pop('close_confirmed', None)
+    trade.pop('close_execution_price', None)
+    trade.pop('close_confirmation_ts', None)
+    trade.pop('pending_close_initial_shares', None)
+    trade.pop('pending_close_reported_shares', None)
+    trade.pop('pending_close_reported_price', None)
+    trade.pop('pending_close_reported_value', None)
+
+def get_trade_sell_price(trade):
+    if trade['market_id'] in LIVE_MARKET_DATA:
+        price = LIVE_MARKET_DATA[trade['market_id']].get(f"{trade['direction']}_SELL", 0.0)
+        if price > 0:
+            return price
+    token_id = get_trade_token_id(trade)
+    if not token_id:
+        return 0.0
+    _, _, best_bid, _, _ = extract_orderbook_metrics(token_id)
+    return best_bid
+
+def create_recovered_trade(market_id, token_id, direction, shares, symbol, timeframe):
+    if not AVAILABLE_TRADE_IDS:
+        log_error("Orphan Recovery", Exception("No free IDs available for recovered position."))
+        return None
+    short_id = AVAILABLE_TRADE_IDS.pop(0)
+    market_sell = 0.0
+    if market_id in LIVE_MARKET_DATA:
+        market_sell = LIVE_MARKET_DATA[market_id].get(f"{direction}_SELL", 0.0)
+    if market_sell <= 0:
+        _, _, market_sell, _, _ = extract_orderbook_metrics(token_id)
+    if market_sell <= 0:
+        market_sell = 0.5
+    invested = shares * market_sell
+    trade = {
+        'id': f"recovered_{market_id}_{direction.lower()}_{uuid.uuid4().hex[:8]}",
+        'short_id': short_id,
+        'strat_id': 'recovered_orphan',
+        'market_id': market_id,
+        'timeframe': timeframe,
+        'symbol': symbol,
+        'strategy': 'Recovered Orphan',
+        'direction': direction,
+        'entry_price': market_sell,
+        'entry_time': datetime.now().isoformat(),
+        'entry_time_ts': time.time(),
+        'last_bid_price': 0.0,
+        'ticks_down': 0,
+        'shares': shares,
+        'invested': invested,
+        'clob_order_id': '',
+        'token_id': token_id,
+        'recovered_orphan': True
+    }
+    PAPER_TRADES.append(trade)
+    log(f"🧲 [LIVE] Recovered orphan position {trade['id']} | {symbol} {timeframe} {direction} | {shares:.4f} shares.")
+    return trade
+
+def rollback_failed_close(trade_id, details=""):
+    trade = get_trade_by_id(trade_id)
+    if not trade or not trade.get('closing_pending'):
+        return
+    clear_pending_close_state(trade)
     suffix = f" Details: {details}" if details else ""
     log(f"🔄 [LIVE] Close rollback for {trade_id}. Position restored for monitoring.{suffix}")
+
+def apply_partial_close_fill(trade, remaining_shares, execution_price, reason):
+    global PORTFOLIO_BALANCE
+    original_shares = trade.get('pending_close_initial_shares', trade['shares'])
+    if original_shares <= 0:
+        rollback_failed_close(trade['id'], "Invalid original share count during partial close.")
+        return
+    sold_shares = max(original_shares - remaining_shares, 0.0)
+    if sold_shares <= POSITION_DUST_SHARES:
+        rollback_failed_close(trade['id'], "Partial close reconciliation found no sold shares.")
+        return
+    cost_per_share = trade['invested'] / original_shares if original_shares > 0 else trade['entry_price']
+    realized_value = execution_price * sold_shares
+    realized_cost = cost_per_share * sold_shares
+    pnl = realized_value - realized_cost
+    trade['shares'] = remaining_shares
+    trade['invested'] = max(trade['invested'] - realized_cost, 0.0)
+    clear_pending_close_state(trade)
+    PORTFOLIO_BALANCE += realized_value
+    log(f"🪓 [LIVE] Partial close for {trade['id']}. Sold {sold_shares:.4f} shares, remaining {remaining_shares:.4f}. PnL: ${pnl:+.2f}")
+    try:
+        loop = asyncio.get_running_loop()
+        loop.create_task(sync_live_balance())
+    except Exception:
+        pass
 
 def finalize_trade_close(trade, close_price, reason):
     global PORTFOLIO_BALANCE
@@ -357,6 +446,7 @@ async def live_sell_worker(trade_id, token_id, expected_gross_shares, async_clie
             for trade in PAPER_TRADES:
                 if trade['id'] == trade_id:
                     trade['close_clob_order_id'] = clob_order_id
+                    trade['close_submitted_ts'] = time.time()
                     break
             
             raw_taking = float(sell_res.get("takingAmount", 0)) 
@@ -372,10 +462,9 @@ async def live_sell_worker(trade_id, token_id, expected_gross_shares, async_clie
             if shares_sold <= 0 or usd_received < 0:
                 rollback_failed_close(trade_id, "SELL response returned no filled shares.")
                 return
-            execution_price = usd_received / shares_sold if shares_sold > 0 else trade.get('pending_close_price', 0.0)
-            close_reason = trade.get('pending_close_reason', 'Live SELL Filled')
-            finalize_trade_close(trade, execution_price, close_reason)
-            asyncio.create_task(sync_live_balance())
+            trade['pending_close_reported_shares'] = shares_sold
+            trade['pending_close_reported_value'] = usd_received
+            trade['pending_close_reported_price'] = usd_received / shares_sold if shares_sold > 0 else trade.get('pending_close_price', 0.0)
         else:
             error_msg = str(sell_res).lower()
             if "no orders found to match" in error_msg:
@@ -675,6 +764,9 @@ def close_trade(trade, close_price, reason):
         trade['pending_close_price'] = close_price
         trade['pending_close_reason'] = reason
         trade['close_requested_at'] = datetime.now().isoformat()
+        trade['close_requested_ts'] = time.time()
+        trade['pending_close_initial_shares'] = trade['shares']
+        trade['close_confirmed'] = False
         asyncio.create_task(live_sell_worker(trade['id'], token_id, trade['shares'], ASYNC_CLOB_CLIENT))
         return
 
@@ -892,11 +984,89 @@ async def user_ws_listener():
                                         
                                     if trade.get('close_clob_order_id') == taker_order_id or any(m.get('order_id') == trade.get('close_clob_order_id') for m in maker_orders):
                                         log(f"🎯 [USER WS] Trade CLOSE confirmed for {trade['id']}! Price: {exact_price}")
+                                        trade['close_confirmed'] = True
+                                        trade['close_execution_price'] = exact_price
+                                        trade['close_confirmation_ts'] = int(ts_sec * 1000)
                                         break
                                         
         except Exception as e:
             if "no close frame received or sent" not in str(e):
                 log_error("Polymarket User WS", e)
+            await asyncio.sleep(2)
+
+async def live_position_reconciliation_worker():
+    if TRADING_MODE != 'live' or not ASYNC_CLOB_CLIENT:
+        return
+
+    last_orphan_scan = 0.0
+    while True:
+        try:
+            await asyncio.sleep(2.0)
+
+            for trade in PAPER_TRADES[:]:
+                token_id = trade.get('token_id')
+                if not token_id:
+                    continue
+
+                actual_balance = await ASYNC_CLOB_CLIENT.get_actual_balance(token_id)
+
+                if trade.get('closing_pending'):
+                    original_shares = trade.get('pending_close_initial_shares', trade['shares'])
+                    elapsed = time.time() - trade.get('close_submitted_ts', trade.get('close_requested_ts', time.time()))
+                    confirmed = trade.get('close_confirmed', False)
+
+                    if actual_balance <= POSITION_DUST_SHARES:
+                        if confirmed or elapsed >= CLOSE_RECONCILE_GRACE_SEC:
+                            execution_price = (
+                                trade.get('close_execution_price')
+                                or trade.get('pending_close_reported_price')
+                                or trade.get('pending_close_price', 0.0)
+                            )
+                            close_reason = trade.get('pending_close_reason', 'Live SELL Filled')
+                            finalize_trade_close(trade, execution_price, close_reason)
+                        continue
+
+                    if actual_balance < max(original_shares - POSITION_DUST_SHARES, 0.0):
+                        if confirmed or elapsed >= CLOSE_RECONCILE_GRACE_SEC:
+                            execution_price = (
+                                trade.get('close_execution_price')
+                                or trade.get('pending_close_reported_price')
+                                or trade.get('pending_close_price', 0.0)
+                            )
+                            close_reason = trade.get('pending_close_reason', 'Live Partial SELL Filled')
+                            apply_partial_close_fill(trade, actual_balance, execution_price, close_reason)
+                        continue
+
+                    if elapsed >= CLOSE_PENDING_TIMEOUT:
+                        rollback_failed_close(trade['id'], f"Close confirmation timeout after {elapsed:.1f}s.")
+
+            now = time.time()
+            if now - last_orphan_scan < ORPHAN_SCAN_INTERVAL:
+                continue
+            last_orphan_scan = now
+
+            tracked_tokens = {trade.get('token_id') for trade in PAPER_TRADES if trade.get('token_id')}
+            for market_id, cache in list(MARKET_CACHE.items()):
+                market_cfg = cache.get('config', {})
+                for direction, token_key in (('UP', 'up_id'), ('DOWN', 'dn_id')):
+                    token_id = cache.get(token_key)
+                    if not token_id or token_id in tracked_tokens:
+                        continue
+                    balance = await ASYNC_CLOB_CLIENT.get_actual_balance(token_id)
+                    if balance <= POSITION_DUST_SHARES:
+                        continue
+                    trade = create_recovered_trade(
+                        market_id,
+                        token_id,
+                        direction,
+                        balance,
+                        market_cfg.get('symbol', ''),
+                        market_cfg.get('timeframe', '')
+                    )
+                    if trade:
+                        tracked_tokens.add(token_id)
+        except Exception as e:
+            log_error("Live Position Reconciliation", e)
             await asyncio.sleep(2)
 
 # ==========================================
@@ -1317,6 +1487,7 @@ async def main():
         binance_ws_listener(),
         polymarket_ws_listener(),
         user_ws_listener(),
+        live_position_reconciliation_worker(),
         fetch_and_track_markets(),
         ui_updater_worker(),
         async_smart_flush_worker()
