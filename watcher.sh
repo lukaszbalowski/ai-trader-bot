@@ -5,6 +5,7 @@
 COMMAND=$1
 ARG=$2
 QUICK_FLAG=""
+DASHBOARD_PORT=${DASHBOARD_PORT:-8000}
 
 if [[ "$2" == "quick" || "$3" == "quick" ]]; then
   QUICK_FLAG="--quick"
@@ -23,6 +24,7 @@ case "$COMMAND" in
     PORTFOLIO=${ARG:-100}
     echo "📄 Starting PAPER TRADING bot. Portfolio: $PORTFOLIO USD"
     docker run --rm -it \
+        -p "${DASHBOARD_PORT}:${DASHBOARD_PORT}" \
         -v "$(pwd)/data:/app/data" \
         --env-file .env \
         ai-trader python main.py --mode paper --portfolio $PORTFOLIO
@@ -31,9 +33,20 @@ case "$COMMAND" in
   live)
     echo "⚠️ 🚀 Starting LIVE TRADING bot. Using real Polymarket wallet balance."
     docker run --rm -it \
+        -p "${DASHBOARD_PORT}:${DASHBOARD_PORT}" \
         -v "$(pwd)/data:/app/data" \
         --env-file .env \
         ai-trader python main.py --mode live
+    ;;
+
+  observe)
+    PORTFOLIO=${ARG:-100}
+    echo "👁️ Starting OBSERVE ONLY bot. Portfolio reference: $PORTFOLIO USD"
+    docker run --rm -it \
+        -p "${DASHBOARD_PORT}:${DASHBOARD_PORT}" \
+        -v "$(pwd)/data:/app/data" \
+        --env-file .env \
+        ai-trader python main.py --mode observe_only --portfolio $PORTFOLIO
     ;;
     
   backtest)
@@ -72,6 +85,7 @@ case "$COMMAND" in
     echo "  build            - Builds the container image (run after every code change)"
     echo "  paper [amount]   - Starts the PAPER TRADING Bot (e.g., ./watcher.sh paper 500)"
     echo "  live             - Starts the LIVE TRADING Bot (uses real wallet balance)"
+    echo "  observe [amount] - Starts the bot in observe-only mode with all markets paused"
     echo "  backtest         - Runs grid simulation and updates strategies from the latest session"
     echo "  backtest quick   - Runs accelerated Monte Carlo sampling on the latest session"
     echo "  backtest-all     - Runs grid simulation on the ENTIRE historical database"

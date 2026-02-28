@@ -7,3 +7,5 @@ numpy
 web3
 py-clob-client
 python-dotenv
+fastapi
+uvicorn

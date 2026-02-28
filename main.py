@@ -19,6 +19,7 @@ from dotenv import load_dotenv
 from py_clob_client.client import ClobClient
 from py_clob_client.clob_types import MarketOrderArgs, OrderType, BalanceAllowanceParams, AssetType
 from dashboard import render_dashboard
+from runtime_state import CommandBus, RuntimeModeManager, RuntimeStateStore
 
 # ==========================================
 # ENV & CREDENTIALS
@@ -33,6 +34,11 @@ SIGNATURE_TYPE = int(os.getenv("SIGNATURE_TYPE", "1"))
 
 TRADING_MODE = 'paper' 
 ASYNC_CLOB_CLIENT = None
+MODE_MANAGER = RuntimeModeManager()
+STATE_STORE = None
+COMMAND_BUS = None
+DISABLED_STRATEGIES = set()
+STRATEGY_KEYS = ('kinetic_sniper', 'momentum', 'mid_arb', 'otm')
 
 # ==========================================
 # CONSTANTS & MULTI-COIN CONFIGURATION
@@ -91,8 +97,18 @@ def market_key(cfg):
     return f"{cfg['symbol']}_{cfg['timeframe']}"
 
 
+def is_strategy_enabled(cfg, strategy_key):
+    if not cfg.get(strategy_key):
+        return False
+    return (market_key(cfg), strategy_key) not in DISABLED_STRATEGIES
+
+
 def has_tradeable_strategies(cfg):
-    return any(cfg.get(name) for name in ('kinetic_sniper', 'momentum', 'mid_arb', 'otm'))
+    return any(is_strategy_enabled(cfg, name) for name in STRATEGY_KEYS)
+
+
+def is_market_trading_enabled(cfg):
+    return MODE_MANAGER.execution_enabled and has_tradeable_strategies(cfg)
 
 
 def build_observed_configs(tracked_configs):
@@ -136,6 +152,13 @@ LOCAL_STATE = {
     'market_status': {
         market_key(cfg): "[paused] [no strategies]" if not has_tradeable_strategies(cfg) else "[paused]"
         for cfg in OBSERVED_CONFIGS
+    },
+    'service_status': {
+        'binance_ws': {'status': 'starting', 'details': 'Waiting for Binance stream'},
+        'polymarket_market_ws': {'status': 'starting', 'details': 'Waiting for market stream'},
+        'polymarket_user_ws': {'status': 'starting', 'details': 'Waiting for user stream'},
+        'database': {'status': 'starting', 'details': 'SQLite not initialized yet'},
+        'dashboard_api': {'status': 'starting', 'details': 'Dashboard server booting'}
     }
 }
 
@@ -149,6 +172,7 @@ ACTIVE_MARKETS = {}
 PRE_WARMING_MARKETS = {}
 LIVE_MARKET_DATA = {}
 TRADE_TIMESTAMPS = {}
+MANUALLY_PAUSED_MARKETS = set()
 
 INITIAL_BALANCE = 0.0
 PORTFOLIO_BALANCE = 0.0
@@ -160,6 +184,86 @@ RECENT_LOGS = []
 ACTIVE_ERRORS = []
 
 WS_SUBSCRIPTION_QUEUE = asyncio.Queue()
+
+
+def set_service_status(name, status, details=""):
+    LOCAL_STATE.setdefault('service_status', {})
+    LOCAL_STATE['service_status'][name] = {'status': status, 'details': details}
+
+
+def get_config_by_market_key(tf_key):
+    return next((cfg for cfg in OBSERVED_CONFIGS if market_key(cfg) == tf_key), None)
+
+
+def get_market_tf_key_by_ui(ui_key):
+    for cfg in OBSERVED_CONFIGS:
+        if cfg['ui_key'] == ui_key:
+            return f"{cfg['symbol']}_{cfg['timeframe']}"
+    return None
+
+
+def normalize_market_selector(selector):
+    if selector in {market_key(cfg) for cfg in OBSERVED_CONFIGS}:
+        return selector
+    return get_market_tf_key_by_ui(selector)
+
+
+def get_ui_key_by_market_tf_key(tf_key):
+    cfg = get_config_by_market_key(tf_key)
+    return cfg.get('ui_key') if cfg else None
+
+
+def market_pause_reason(cfg):
+    if not has_tradeable_strategies(cfg):
+        return "[paused] [no strategies]"
+    if not MODE_MANAGER.execution_enabled:
+        return "[paused] [observe-only]"
+    return "[paused]"
+
+
+def refresh_market_runtime_flags():
+    for cfg in OBSERVED_CONFIGS:
+        tf_key = market_key(cfg)
+        current_status = LOCAL_STATE['market_status'].get(tf_key, "[paused]")
+
+        if not has_tradeable_strategies(cfg):
+            LOCAL_STATE['paused_markets'].add(tf_key)
+            LOCAL_STATE['market_status'][tf_key] = "[paused] [no strategies]"
+            continue
+
+        if not MODE_MANAGER.execution_enabled:
+            LOCAL_STATE['paused_markets'].add(tf_key)
+            LOCAL_STATE['market_status'][tf_key] = "[paused] [observe-only]"
+            continue
+
+        if tf_key in MANUALLY_PAUSED_MARKETS:
+            LOCAL_STATE['paused_markets'].add(tf_key)
+            LOCAL_STATE['market_status'][tf_key] = "[paused] [manual]"
+            continue
+
+        if tf_key in ACTIVE_MARKETS:
+            LOCAL_STATE['paused_markets'].discard(tf_key)
+            if "waiting for next" in current_status:
+                LOCAL_STATE['market_status'][tf_key] = current_status
+            else:
+                LOCAL_STATE['market_status'][tf_key] = "[running]"
+            continue
+
+        if tf_key in PRE_WARMING_MARKETS:
+            LOCAL_STATE['paused_markets'].add(tf_key)
+            LOCAL_STATE['market_status'][tf_key] = "[paused] [pre-warm]"
+            continue
+
+        LOCAL_STATE['paused_markets'].add(tf_key)
+        if "waiting for next" not in current_status:
+            LOCAL_STATE['market_status'][tf_key] = "[paused] [searching next]"
+
+
+def switch_operation_mode(target_mode):
+    MODE_MANAGER.set_operation_mode(target_mode)
+    refresh_market_runtime_flags()
+    log(f"🎛️ [MODE] Operation mode switched to {MODE_MANAGER.operation_mode}.")
+    return f"Operation mode switched to {MODE_MANAGER.operation_mode}"
 
 # ==========================================
 # DATABASE EVENT WORKER (ZERO-BLOCKING)
@@ -646,26 +750,30 @@ def perform_tech_dump():
     except Exception as e:
         log_error("Tech Dump Error", e)
 
-def get_market_tf_key_by_ui(ui_key):
-    for cfg in OBSERVED_CONFIGS:
-        if cfg['ui_key'] == ui_key:
-            return f"{cfg['symbol']}_{cfg['timeframe']}"
-    return None
-
 def close_manual_trade(short_id):
     for trade in PAPER_TRADES[:]:
         if trade['short_id'] == short_id:
             live_bid = LIVE_MARKET_DATA.get(trade['market_id'], {}).get(f"{trade['direction']}_SELL", 0.0)
             close_trade(trade, live_bid, "MANUAL OVERRIDE CLOSE")
             log(f"⚡ [MANUAL] Option ID {short_id:02d} explicitly closed.")
-            return
-    log(f"⚠️ [MANUAL] Open Option ID {short_id:02d} not found.")
+            return f"Closed option ID {short_id:02d}"
+    message = f"Open Option ID {short_id:02d} not found."
+    log(f"⚠️ [MANUAL] {message}")
+    raise KeyError(message)
 
-def close_market_trades(ui_key, reason="MANUAL MARKET CLOSE"):
-    tf_key = get_market_tf_key_by_ui(ui_key)
+def close_trade_by_trade_id(trade_id):
+    for trade in PAPER_TRADES[:]:
+        if trade['id'] == trade_id:
+            live_bid = LIVE_MARKET_DATA.get(trade['market_id'], {}).get(f"{trade['direction']}_SELL", 0.0)
+            close_trade(trade, live_bid, "MANUAL OVERRIDE CLOSE")
+            log(f"⚡ [MANUAL] Trade {trade_id} explicitly closed.")
+            return f"Trade {trade_id} closed."
+    raise KeyError(f"Trade {trade_id} not found.")
+
+def close_market_trades(selector, reason="MANUAL MARKET CLOSE"):
+    tf_key = normalize_market_selector(selector)
     if not tf_key:
-        log(f"⚠️ [MANUAL] Invalid market key '{ui_key}'.")
-        return
+        raise KeyError(f"Invalid market key '{selector}'.")
         
     closed_count = 0
     for trade in PAPER_TRADES[:]:
@@ -674,53 +782,97 @@ def close_market_trades(ui_key, reason="MANUAL MARKET CLOSE"):
             close_trade(trade, live_bid, reason)
             closed_count += 1
             
+    ui_key = get_ui_key_by_market_tf_key(tf_key) or selector
     if closed_count > 0:
-        log(f"⚡ [MANUAL] Dumped {closed_count} positions for market [{ui_key}] {tf_key}.")
-    else:
-        log(f"ℹ️ [MANUAL] No open positions found for market [{ui_key}] {tf_key}.")
+        message = f"Dumped {closed_count} positions for market [{ui_key}] {tf_key}."
+        log(f"⚡ [MANUAL] {message}")
+        return message
 
-def stop_market(ui_key):
-    tf_key = get_market_tf_key_by_ui(ui_key)
-    if tf_key:
-        LOCAL_STATE['paused_markets'].add(tf_key)
-        cfg = next((c for c in OBSERVED_CONFIGS if market_key(c) == tf_key), None)
-        LOCAL_STATE['market_status'][tf_key] = "[paused] [no strategies]" if cfg and not has_tradeable_strategies(cfg) else "[paused]"
-        close_market_trades(ui_key, reason="MARKET STOP (EMERGENCY LIQUIDATION)")
-        log(f"🛑 [MANUAL] Market [{ui_key}] {tf_key} operations PAUSED.")
+    message = f"No open positions found for market [{ui_key}] {tf_key}."
+    log(f"ℹ️ [MANUAL] {message}")
+    return message
 
-def restart_market(ui_key):
-    tf_key = get_market_tf_key_by_ui(ui_key)
-    cfg = next((c for c in OBSERVED_CONFIGS if market_key(c) == tf_key), None)
-    if cfg and not has_tradeable_strategies(cfg):
+def stop_market(selector):
+    tf_key = normalize_market_selector(selector)
+    if not tf_key:
+        raise KeyError(f"Invalid market key '{selector}'.")
+    MANUALLY_PAUSED_MARKETS.add(tf_key)
+    LOCAL_STATE['paused_markets'].add(tf_key)
+    LOCAL_STATE['market_status'][tf_key] = "[paused] [manual]"
+    close_market_trades(tf_key, reason="MARKET STOP (EMERGENCY LIQUIDATION)")
+    message = f"Market {tf_key} operations paused."
+    log(f"🛑 [MANUAL] {message}")
+    return message
+
+def restart_market(selector):
+    tf_key = normalize_market_selector(selector)
+    cfg = get_config_by_market_key(tf_key)
+    if not tf_key or not cfg:
+        raise KeyError(f"Invalid market key '{selector}'.")
+    if not has_tradeable_strategies(cfg):
         LOCAL_STATE['paused_markets'].add(tf_key)
         LOCAL_STATE['market_status'][tf_key] = "[paused] [no strategies]"
-        log(f"ℹ️ [MANUAL] Market [{ui_key}] {tf_key} remains paused. No strategies assigned.")
-        return
-    if tf_key and tf_key in LOCAL_STATE['paused_markets']:
-        LOCAL_STATE['paused_markets'].remove(tf_key)
-        LOCAL_STATE['market_status'][tf_key] = "[running]"
-        log(f"▶️ [MANUAL] Market [{ui_key}] {tf_key} RESUMED.")
+        message = f"Market {tf_key} remains paused. No strategies assigned."
+        log(f"ℹ️ [MANUAL] {message}")
+        return message
+    if not MODE_MANAGER.execution_enabled:
+        LOCAL_STATE['paused_markets'].add(tf_key)
+        LOCAL_STATE['market_status'][tf_key] = "[paused] [observe-only]"
+        message = f"Market {tf_key} cannot resume while observe-only mode is active."
+        log(f"ℹ️ [MANUAL] {message}")
+        return message
+    MANUALLY_PAUSED_MARKETS.discard(tf_key)
+    refresh_market_runtime_flags()
+    message = f"Market {tf_key} resumed."
+    log(f"▶️ [MANUAL] {message}")
+    return message
+
+def set_strategy_enabled(selector, strategy_key, enabled):
+    tf_key = normalize_market_selector(selector)
+    cfg = get_config_by_market_key(tf_key)
+    if not tf_key or not cfg:
+        raise KeyError(f"Invalid market key '{selector}'.")
+    if strategy_key not in STRATEGY_KEYS:
+        raise ValueError(f"Unsupported strategy '{strategy_key}'.")
+    if not cfg.get(strategy_key):
+        raise ValueError(f"Strategy '{strategy_key}' is not configured for {tf_key}.")
+
+    strategy_ref = (tf_key, strategy_key)
+    if enabled:
+        DISABLED_STRATEGIES.discard(strategy_ref)
+    else:
+        DISABLED_STRATEGIES.add(strategy_ref)
+
+    refresh_market_runtime_flags()
+    state = "enabled" if enabled else "disabled"
+    message = f"Strategy {strategy_key} for {tf_key} is now {state}."
+    log(f"🎚️ [MANUAL] {message}")
+    return message
 
 def handle_stdin():
     cmd = sys.stdin.readline().strip().lower().replace(" ", "")
     
-    if cmd == 'q': 
-        asyncio.create_task(liquidate_all_and_quit())
-    elif cmd == 'd':
-        perform_tech_dump()
-    elif cmd.startswith('o') and cmd[1:].isdigit():
-        close_manual_trade(int(cmd[1:]))
-    elif cmd.startswith('ms') and len(cmd) == 3:
-        stop_market(cmd[2])
-    elif cmd.startswith('mr') and len(cmd) == 3:
-        restart_market(cmd[2])
-    elif cmd.startswith('m') and len(cmd) == 2:
-        close_market_trades(cmd[1])
+    try:
+        if cmd == 'q': 
+            asyncio.create_task(liquidate_all_and_quit())
+        elif cmd == 'd':
+            perform_tech_dump()
+        elif cmd.startswith('o') and cmd[1:].isdigit():
+            close_manual_trade(int(cmd[1:]))
+        elif cmd.startswith('ms') and len(cmd) == 3:
+            stop_market(cmd[2])
+        elif cmd.startswith('mr') and len(cmd) == 3:
+            restart_market(cmd[2])
+        elif cmd.startswith('m') and len(cmd) == 2:
+            close_market_trades(cmd[1])
+    except (KeyError, ValueError) as e:
+        log(f"⚠️ [MANUAL] {e}")
 
 # ==========================================
 # 1. DATABASE (ASYNC)
 # ==========================================
 async def init_db():
+    set_service_status('database', 'starting', 'Opening SQLite database')
     async with aiosqlite.connect('data/polymarket.db') as db:
         await db.execute('''CREATE TABLE IF NOT EXISTS market_logs_v11 (
             id INTEGER PRIMARY KEY AUTOINCREMENT, timeframe TEXT, market_id TEXT,
@@ -749,6 +901,7 @@ async def init_db():
             except Exception: pass
             
         await db.commit()
+    set_service_status('database', 'ready', 'SQLite schema is ready')
 
 async def flush_to_db():
     global MARKET_LOGS_BUFFER, TRADE_LOGS_BUFFER
@@ -768,6 +921,7 @@ async def flush_to_db():
         MARKET_LOGS_BUFFER.clear()
         TRADE_LOGS_BUFFER.clear()
     except Exception as e:
+        set_service_status('database', 'error', str(e)[:80])
         log_error("Database (flush_to_db)", e)
 
 async def async_smart_flush_worker():
@@ -802,6 +956,32 @@ async def ui_updater_worker():
             log_error("Dashboard Renderer", e)
         await asyncio.sleep(1)
 
+
+async def dashboard_api_worker():
+    try:
+        import uvicorn
+        from dashboard_api import create_dashboard_app
+    except ImportError as e:
+        set_service_status('dashboard_api', 'disabled', 'Install fastapi and uvicorn to enable web dashboard')
+        log(f"⚠️ [DASHBOARD] Web dashboard disabled: {e}")
+        while True:
+            await asyncio.sleep(3600)
+
+    dashboard_host = os.getenv("DASHBOARD_HOST", "0.0.0.0")
+    dashboard_port = int(os.getenv("DASHBOARD_PORT", "8000"))
+    app = create_dashboard_app(STATE_STORE, COMMAND_BUS, MODE_MANAGER)
+    config = uvicorn.Config(
+        app,
+        host=dashboard_host,
+        port=dashboard_port,
+        log_level="warning",
+        loop="asyncio",
+    )
+    server = uvicorn.Server(config)
+    server.install_signal_handlers = lambda: None
+    set_service_status('dashboard_api', 'ready', f"Dashboard listening on {dashboard_host}:{dashboard_port}")
+    await server.serve()
+
 async def liquidate_all_and_quit():
     log("🚨 EMERGENCY LIQUIDATION. Selling positions and stopping system...")
     perform_tech_dump() 
@@ -821,6 +1001,8 @@ def calculate_dynamic_size(base_stake, win_rate, market_id):
 
 def execute_trade(market_id, timeframe, strategy, direction, base_stake, price, symbol, win_rate, strat_id=""):
     global PORTFOLIO_BALANCE
+    if not MODE_MANAGER.execution_enabled:
+        return
     if not AVAILABLE_TRADE_IDS:
         log_error("ID Pool Exhausted", Exception("No free IDs available."))
         return
@@ -942,6 +1124,7 @@ async def binance_ws_listener():
         try:
             async with websockets.connect(url, ping_interval=20, ping_timeout=20) as ws:
                 log(f"[WS] Connected to Binance")
+                set_service_status('binance_ws', 'connected', 'Streaming live prices from Binance')
                 async for msg in ws:
                     data = json.loads(msg)
                     if 'data' in data and 's' in data['data']:
@@ -959,6 +1142,7 @@ async def binance_ws_listener():
                             LOCAL_STATE['binance_live_price'][pair] = new_price
                         await evaluate_strategies("BINANCE_TICK", pair_filter=pair)
         except Exception as e:
+            set_service_status('binance_ws', 'error', str(e)[:80])
             log_error("Binance WebSocket", e)
             await asyncio.sleep(2)
 
@@ -969,6 +1153,7 @@ async def polymarket_ws_listener():
         try:
             async with websockets.connect(url, ping_interval=20, ping_timeout=20) as ws:
                 log("[WS] Connected to Polymarket CLOB Market Stream")
+                set_service_status('polymarket_market_ws', 'connected', 'Streaming Polymarket market data')
                 if subscribed_tokens:
                     await ws.send(json.dumps({
                         "assets_ids": list(subscribed_tokens), 
@@ -1051,11 +1236,13 @@ async def polymarket_ws_listener():
                 finally: queue_task.cancel()
         except Exception as e:
             if "no close frame received or sent" not in str(e):
+                set_service_status('polymarket_market_ws', 'error', str(e)[:80])
                 log_error("Polymarket CLOB", e)
             await asyncio.sleep(0.1)
 
 async def user_ws_listener():
     if TRADING_MODE != 'live':
+        set_service_status('polymarket_user_ws', 'disabled', 'User stream disabled outside live mode')
         return
         
     url = "wss://ws-subscriptions-clob.polymarket.com/ws/user"
@@ -1067,6 +1254,7 @@ async def user_ws_listener():
         try:
             async with websockets.connect(url, ping_interval=20, ping_timeout=20) as ws:
                 log("[WS] Connected to Polymarket CLOB User Stream")
+                set_service_status('polymarket_user_ws', 'connected', 'Authenticated user stream is active')
                 auth_payload = {
                     "auth": {
                         "apiKey": creds.api_key,
@@ -1113,6 +1301,7 @@ async def user_ws_listener():
                                         
         except Exception as e:
             if "no close frame received or sent" not in str(e):
+                set_service_status('polymarket_user_ws', 'error', str(e)[:80])
                 log_error("Polymarket User WS", e)
             await asyncio.sleep(2)
 
@@ -1207,7 +1396,7 @@ async def fetch_and_track_markets():
                 now_ts = int(now_et.timestamp())
                 
                 for config in OBSERVED_CONFIGS:
-                    trading_enabled = has_tradeable_strategies(config)
+                    trading_enabled = is_market_trading_enabled(config)
                     pair = config['pair']
                     live_p = LOCAL_STATE['binance_live_price'].get(pair, 0.0)
                     if live_p == 0.0: continue
@@ -1250,13 +1439,17 @@ async def fetch_and_track_markets():
                                 if f'timing_{pw_m_id}' in LOCAL_STATE:
                                     LOCAL_STATE[f'timing_{pw_m_id}']['is_pre_warming'] = False
 
-                                if timeframe_key in LOCAL_STATE['paused_markets'] and trading_enabled:
+                                if (
+                                    timeframe_key in LOCAL_STATE['paused_markets']
+                                    and trading_enabled
+                                    and timeframe_key not in MANUALLY_PAUSED_MARKETS
+                                ):
                                     LOCAL_STATE['paused_markets'].remove(timeframe_key)
-                                LOCAL_STATE['market_status'][timeframe_key] = "[running]" if trading_enabled else "[paused] [no strategies]"
+                                LOCAL_STATE['market_status'][timeframe_key] = "[running]" if trading_enabled else market_pause_reason(config)
                             else:
                                 del ACTIVE_MARKETS[timeframe_key]
                                 LOCAL_STATE['paused_markets'].add(timeframe_key)
-                                LOCAL_STATE['market_status'][timeframe_key] = "[paused] [searching next]" if trading_enabled else "[paused] [no strategies]"
+                                LOCAL_STATE['market_status'][timeframe_key] = "[paused] [searching next]" if trading_enabled else market_pause_reason(config)
 
                     # --- 2. API FETCHING LOGIC ---
                     is_pre_warming_phase = (sec_left <= 60) and (sec_left > 0)
@@ -1339,13 +1532,13 @@ async def fetch_and_track_markets():
                                 log(f"🔥 [PRE-WARMING] Subscribed to incoming market {config['symbol']} {config['timeframe']} before opening!")
                             else:
                                 ACTIVE_MARKETS[timeframe_key] = {'m_id': fetched_m_id, 'target': live_p, 'expire_ts': target_ts_to_fetch + interval_s}
-                                if is_clean_start and trading_enabled:
+                                if is_clean_start and trading_enabled and timeframe_key not in MANUALLY_PAUSED_MARKETS:
                                     if timeframe_key in LOCAL_STATE['paused_markets']:
                                         LOCAL_STATE['paused_markets'].remove(timeframe_key)
                                     LOCAL_STATE['market_status'][timeframe_key] = "[running]"
                                 elif not trading_enabled:
                                     LOCAL_STATE['paused_markets'].add(timeframe_key)
-                                    LOCAL_STATE['market_status'][timeframe_key] = "[paused] [no strategies]"
+                                    LOCAL_STATE['market_status'][timeframe_key] = market_pause_reason(config)
                                 else:
                                     LOCAL_STATE['market_status'][timeframe_key] = "[paused] [waiting for next]"
 
@@ -1388,6 +1581,7 @@ async def fetch_and_track_markets():
 
             except Exception as e:
                 log_error("Market State Manager", e)
+            refresh_market_runtime_flags()
             await asyncio.sleep(CHECK_INTERVAL)
 
 # ==========================================
@@ -1505,7 +1699,7 @@ async def evaluate_strategies(trigger_source, pair_filter=None):
             # =====================================================================        
             if is_base_fetched:
                 
-                m_cfg = config.get('mid_arb', {})
+                m_cfg = config.get('mid_arb', {}) if is_strategy_enabled(config, 'mid_arb') else {}
                 mid_arb_flag = f"mid_arb_{m_id}"
                 if not is_paused and m_cfg and is_clean and m_cfg.get('win_end', 0) < sec_left < m_cfg.get('win_start', 0) and mid_arb_flag not in EXECUTED_STRAT[m_id]:
                     if adj_delta > m_cfg.get('delta', 0) and 0 < b_up <= m_cfg.get('max_p', 0):
@@ -1515,7 +1709,7 @@ async def evaluate_strategies(trigger_source, pair_filter=None):
                         execute_trade(m_id, timeframe, "Mid-Game Arb", "DOWN", 1.0, b_dn, symbol, m_cfg.get('wr', 50.0), m_cfg.get('id', ''))
                         EXECUTED_STRAT[m_id].append(mid_arb_flag)
                         
-                otm_cfg = config.get('otm', {})
+                otm_cfg = config.get('otm', {}) if is_strategy_enabled(config, 'otm') else {}
                 otm_flag = f"otm_{m_id}"
                 if not is_paused and otm_cfg and otm_cfg.get('wr', 0.0) > 0.0 and otm_cfg.get('win_end', 0) <= sec_left <= otm_cfg.get('win_start', 0) and otm_flag not in EXECUTED_STRAT[m_id]:
                     if abs(adj_delta) < 40.0:
@@ -1526,9 +1720,9 @@ async def evaluate_strategies(trigger_source, pair_filter=None):
                             execute_trade(m_id, timeframe, "OTM Bargain", "DOWN", 1.0, b_dn, symbol, otm_cfg.get('wr', 50.0), otm_cfg.get('id', ''))
                             EXECUTED_STRAT[m_id].append(otm_flag)
                             
-                mom_cfg = config.get('momentum', {})
+                mom_cfg = config.get('momentum', {}) if is_strategy_enabled(config, 'momentum') else {}
                 if not is_paused and mom_cfg and is_clean and mom_cfg.get('win_end', 0) <= sec_left <= mom_cfg.get('win_start', 0) and 'momentum' not in EXECUTED_STRAT[m_id]:
-                    if adj_delta >= mom_cfg.get('delta', 0) and 0 < b_up <= m_cfg.get('max_p', 0):
+                    if adj_delta >= mom_cfg.get('delta', 0) and 0 < b_up <= mom_cfg.get('max_p', 0):
                         execute_trade(m_id, timeframe, "1-Min Mom", "UP", 1.0, b_up, symbol, mom_cfg.get('wr', 50.0), mom_cfg.get('id', ''))
                         EXECUTED_STRAT[m_id].append('momentum')
                     elif adj_delta <= -mom_cfg.get('delta', 0) and 0 < b_dn <= mom_cfg.get('max_p', 0):
@@ -1539,7 +1733,7 @@ async def evaluate_strategies(trigger_source, pair_filter=None):
                 up_change = b_up - m_data['prev_up']
                 dn_change = b_dn - m_data['prev_dn']
                 
-                kin_cfg = config.get('kinetic_sniper', {})
+                kin_cfg = config.get('kinetic_sniper', {}) if is_strategy_enabled(config, 'kinetic_sniper') else {}
                 if not is_paused and kin_cfg:
                     max_target_dist = kin_cfg.get('max_target_dist', float('inf'))
                     
@@ -1567,17 +1761,44 @@ async def evaluate_strategies(trigger_source, pair_filter=None):
 # MAIN ORCHESTRATION LOOP
 # ==========================================
 async def main():
-    global INITIAL_BALANCE, PORTFOLIO_BALANCE, LAST_FLUSH_TS, TRADING_MODE, ASYNC_CLOB_CLIENT
+    global INITIAL_BALANCE, PORTFOLIO_BALANCE, LAST_FLUSH_TS, TRADING_MODE, ASYNC_CLOB_CLIENT, STATE_STORE, COMMAND_BUS
     
     parser = argparse.ArgumentParser()
     parser.add_argument('--portfolio', type=float, default=100.0)
-    parser.add_argument('--mode', type=str, choices=['paper', 'live'], default='paper')
+    parser.add_argument('--mode', type=str, choices=['paper', 'live', 'observe_only'], default='paper')
     args = parser.parse_args()
     
     INITIAL_BALANCE = args.portfolio
     PORTFOLIO_BALANCE = args.portfolio
     LAST_FLUSH_TS = (int(time.time()) // 300) * 300
     TRADING_MODE = args.mode
+    MODE_MANAGER.configure_startup(args.mode)
+
+    STATE_STORE = RuntimeStateStore(
+        observed_configs=OBSERVED_CONFIGS,
+        get_state=lambda: LOCAL_STATE,
+        get_active_markets=lambda: ACTIVE_MARKETS,
+        get_pre_warming_markets=lambda: PRE_WARMING_MARKETS,
+        get_live_market_data=lambda: LIVE_MARKET_DATA,
+        get_trades=lambda: PAPER_TRADES,
+        get_trade_history=lambda: TRADE_HISTORY,
+        get_balance=lambda: PORTFOLIO_BALANCE,
+        get_initial_balance=lambda: INITIAL_BALANCE,
+        get_market_cache=lambda: MARKET_CACHE,
+        extract_orderbook_metrics=extract_orderbook_metrics,
+        mode_manager=MODE_MANAGER,
+        is_strategy_enabled=is_strategy_enabled,
+        loss_recovery_timeout=LOSS_RECOVERY_TIMEOUT,
+        kinetic_timeout=KINETIC_SNIPER_TIMEOUT,
+    )
+    COMMAND_BUS = CommandBus(
+        stop_market=stop_market,
+        resume_market=restart_market,
+        close_market=close_market_trades,
+        close_position=close_trade_by_trade_id,
+        set_strategy_enabled=set_strategy_enabled,
+        set_mode=switch_operation_mode,
+    )
     
     log(f"🚀 LOCAL ORACLE SYSTEM INITIALIZATION. Session ID: {SESSION_ID}")
     
@@ -1591,6 +1812,7 @@ async def main():
             ASYNC_CLOB_CLIENT = AsyncClobClient(client)
             creds = await ASYNC_CLOB_CLIENT.init_creds()
             client.set_api_creds(creds)
+            MODE_MANAGER.connection_ready = True
             log("✅ Polymarket Live API Authorization Successful.")
             try:
                 real_balance = await ASYNC_CLOB_CLIENT.get_collateral_balance()
@@ -1601,10 +1823,20 @@ async def main():
             except Exception as e:
                 log_error("Failed to fetch initial collateral. Using CLI param.", e)
         except Exception as e:
+            MODE_MANAGER.connection_ready = False
             log_error("CRITICAL: Polymarket API Auth Failed", e)
             os._exit(1)
+    elif TRADING_MODE == 'observe_only':
+        MODE_MANAGER.connection_ready = False
+        LOCAL_STATE['market_status'] = {
+            market_key(cfg): "[paused] [observe-only]" if cfg else "[paused]"
+            for cfg in OBSERVED_CONFIGS
+        }
+        LOCAL_STATE['paused_markets'] = {market_key(cfg) for cfg in OBSERVED_CONFIGS}
+        log("👁️ Observe-only mode initialized. No new trades will be opened.")
     
     await init_db()
+    refresh_market_runtime_flags()
     
     loop = asyncio.get_event_loop()
     try:
@@ -1620,6 +1852,7 @@ async def main():
         live_position_reconciliation_worker(),
         fetch_and_track_markets(),
         ui_updater_worker(),
+        dashboard_api_worker(),
         async_smart_flush_worker()
     )
 

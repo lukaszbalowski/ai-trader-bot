@@ -1,0 +1,648 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Watcher</title>
+  <style>
+    :root {
+      --bg: #07111c;
+      --panel: rgba(10, 23, 37, 0.82);
+      --panel-strong: rgba(14, 31, 48, 0.96);
+      --line: rgba(142, 187, 214, 0.16);
+      --text: #edf4fa;
+      --muted: #8ea1b2;
+      --accent: #5cc8a1;
+      --accent-warm: #ffbc5c;
+      --danger: #ff6f6f;
+      --shadow: 0 24px 80px rgba(0, 0, 0, 0.28);
+      --font-ui: "IBM Plex Sans", "Avenir Next", "Segoe UI", sans-serif;
+      --font-display: "IBM Plex Mono", "Menlo", monospace;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: var(--font-ui);
+      color: var(--text);
+      background:
+        radial-gradient(circle at top left, rgba(92, 200, 161, 0.22), transparent 32%),
+        radial-gradient(circle at top right, rgba(255, 188, 92, 0.18), transparent 28%),
+        linear-gradient(160deg, #07111c 0%, #091827 48%, #041019 100%);
+    }
+
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      background-image: linear-gradient(rgba(255,255,255,0.02) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.02) 1px, transparent 1px);
+      background-size: 28px 28px;
+      opacity: 0.35;
+    }
+
+    .app {
+      width: min(1500px, calc(100vw - 32px));
+      margin: 24px auto 40px;
+      display: grid;
+      gap: 18px;
+      animation: fadeIn 380ms ease-out;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .hero,
+    .panel {
+      border: 1px solid var(--line);
+      background: var(--panel);
+      backdrop-filter: blur(14px);
+      box-shadow: var(--shadow);
+      border-radius: 20px;
+    }
+
+    .hero {
+      padding: 22px;
+      display: grid;
+      gap: 18px;
+    }
+
+    .hero-top {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      align-items: flex-start;
+      flex-wrap: wrap;
+    }
+
+    .eyebrow {
+      margin: 0 0 6px;
+      color: var(--accent);
+      font-size: 12px;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: clamp(28px, 5vw, 44px);
+      line-height: 1;
+    }
+
+    .hero-meta {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .pill {
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 8px 12px;
+      font-size: 13px;
+      color: var(--muted);
+      background: rgba(255, 255, 255, 0.03);
+    }
+
+    .summary-grid,
+    .layout {
+      display: grid;
+      gap: 18px;
+    }
+
+    .summary-grid {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+
+    .summary-card {
+      padding: 16px 18px;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      background: rgba(255, 255, 255, 0.025);
+    }
+
+    .summary-card .label {
+      color: var(--muted);
+      font-size: 13px;
+      margin-bottom: 8px;
+    }
+
+    .summary-card .value {
+      font-family: var(--font-display);
+      font-size: clamp(22px, 4vw, 30px);
+    }
+
+    .layout {
+      grid-template-columns: 1.5fr 1fr;
+      align-items: start;
+    }
+
+    .stack {
+      display: grid;
+      gap: 18px;
+    }
+
+    .panel {
+      padding: 18px;
+    }
+
+    .panel h2 {
+      margin: 0 0 16px;
+      font-size: 17px;
+      letter-spacing: 0.03em;
+    }
+
+    .actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    button {
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 9px 14px;
+      cursor: pointer;
+      color: var(--text);
+      background: rgba(255, 255, 255, 0.04);
+      transition: transform 140ms ease, border-color 140ms ease, background 140ms ease;
+      font-family: inherit;
+    }
+
+    button:hover {
+      transform: translateY(-1px);
+      border-color: rgba(92, 200, 161, 0.35);
+      background: rgba(92, 200, 161, 0.08);
+    }
+
+    button:disabled {
+      opacity: 0.5;
+      cursor: default;
+      transform: none;
+    }
+
+    .table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 14px;
+    }
+
+    .table th,
+    .table td {
+      text-align: left;
+      padding: 12px 10px;
+      border-top: 1px solid var(--line);
+      vertical-align: top;
+    }
+
+    .table th {
+      color: var(--muted);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .market-title {
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+
+    .market-sub,
+    .muted {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .list {
+      display: grid;
+      gap: 12px;
+    }
+
+    .card {
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 14px;
+      background: rgba(255, 255, 255, 0.025);
+    }
+
+    .card-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: flex-start;
+      margin-bottom: 10px;
+    }
+
+    .metric-inline {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .positive { color: var(--accent); }
+    .negative { color: var(--danger); }
+    .warning { color: var(--accent-warm); }
+
+    .status-grid {
+      display: grid;
+      gap: 10px;
+    }
+
+    .service-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      border-top: 1px solid var(--line);
+      padding-top: 10px;
+      font-size: 13px;
+    }
+
+    .empty {
+      color: var(--muted);
+      border: 1px dashed var(--line);
+      border-radius: 16px;
+      padding: 18px;
+      text-align: center;
+    }
+
+    .flash {
+      animation: flash 260ms ease;
+    }
+
+    @keyframes flash {
+      from { box-shadow: 0 0 0 rgba(92, 200, 161, 0); }
+      50% { box-shadow: 0 0 0 8px rgba(92, 200, 161, 0.12); }
+      to { box-shadow: 0 0 0 rgba(92, 200, 161, 0); }
+    }
+
+    @media (max-width: 1100px) {
+      .summary-grid,
+      .layout {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 720px) {
+      .app {
+        width: min(100vw - 20px, 100%);
+        margin: 10px auto 24px;
+      }
+
+      .hero,
+      .panel {
+        padding: 14px;
+      }
+
+      .table {
+        display: block;
+        overflow-x: auto;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="app">
+    <section class="panel" id="connectionPanel" style="display:none;"></section>
+    <section class="hero">
+      <div class="hero-top">
+        <div>
+          <p class="eyebrow">Watcher Runtime Control</p>
+          <h1>Watcher</h1>
+        </div>
+        <div class="hero-meta" id="heroMeta"></div>
+      </div>
+      <div class="summary-grid" id="summaryGrid"></div>
+      <div class="actions" id="modeActions"></div>
+    </section>
+
+    <div class="layout">
+      <div class="stack">
+        <section class="panel">
+          <h2>Subscribed Markets</h2>
+          <div id="marketsTable"></div>
+        </section>
+
+        <section class="panel">
+          <h2>Open Positions</h2>
+          <div id="positionsList" class="list"></div>
+        </section>
+      </div>
+
+      <div class="stack">
+        <section class="panel">
+          <h2>Active Strategies</h2>
+          <div id="strategiesList" class="list"></div>
+        </section>
+
+        <section class="panel">
+          <h2>Service Status</h2>
+          <div id="servicesList" class="status-grid"></div>
+        </section>
+      </div>
+    </div>
+  </main>
+
+  <script>
+    const state = { dashboard: null };
+
+    function detectApiBase() {
+      const params = new URLSearchParams(window.location.search);
+      const apiParam = params.get("api");
+      if (apiParam) {
+        return apiParam.replace(/\/$/, "");
+      }
+
+      if (window.location.protocol === "file:") {
+        const port = params.get("port") || "8000";
+        return `http://127.0.0.1:${port}`;
+      }
+
+      return window.location.origin.replace(/\/$/, "");
+    }
+
+    const API_BASE = detectApiBase();
+
+    function setConnectionInfo(message, details = "") {
+      const panel = document.getElementById("connectionPanel");
+      panel.style.display = "block";
+      panel.innerHTML = `
+        <h2>Dashboard Connection</h2>
+        <p style="margin:0 0 8px;">${message}</p>
+        ${details ? `<p class="muted" style="margin:0;">${details}</p>` : ""}
+      `;
+    }
+
+    function money(value) {
+      const sign = value > 0 ? "+" : "";
+      return `${sign}$${Number(value || 0).toFixed(2)}`;
+    }
+
+    function pct(value) {
+      const sign = value > 0 ? "+" : "";
+      return `${sign}${Number(value || 0).toFixed(2)}%`;
+    }
+
+    function colorClass(value) {
+      if (value > 0) return "positive";
+      if (value < 0) return "negative";
+      return "warning";
+    }
+
+    async function post(path) {
+      const response = await fetch(`${API_BASE}${path}`, { method: "POST" });
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload.detail || "Request failed");
+      }
+      pulse();
+      return payload;
+    }
+
+    function pulse() {
+      document.body.classList.remove("flash");
+      void document.body.offsetWidth;
+      document.body.classList.add("flash");
+    }
+
+    function renderSummary(session) {
+      const summaryGrid = document.getElementById("summaryGrid");
+      summaryGrid.innerHTML = `
+        <div class="summary-card">
+          <div class="label">Session Time</div>
+          <div class="value">${session.duration_label}</div>
+        </div>
+        <div class="summary-card">
+          <div class="label">Portfolio Value</div>
+          <div class="value">${money(session.total_portfolio_value)}</div>
+        </div>
+        <div class="summary-card">
+          <div class="label">Invested Value</div>
+          <div class="value">${money(session.invested_value)}</div>
+        </div>
+        <div class="summary-card">
+          <div class="label">Global PnL</div>
+          <div class="value ${colorClass(session.pnl_value)}">${money(session.pnl_value)} / ${pct(session.pnl_percent)}</div>
+        </div>
+      `;
+
+      const heroMeta = document.getElementById("heroMeta");
+      heroMeta.innerHTML = `
+        <span class="pill">Session: ${session.session_id}</span>
+        <span class="pill">Startup mode: ${session.startup_mode}</span>
+        <span class="pill">Operation mode: ${session.operation_mode}</span>
+        <span class="pill">Execution: ${session.execution_enabled ? "ON" : "OFF"}</span>
+      `;
+    }
+
+    function renderModes(session) {
+      const root = document.getElementById("modeActions");
+      if (session.startup_mode === "observe_only") {
+        root.innerHTML = '<span class="pill">Observe-only startup mode cannot be resumed into trading from this process.</span>';
+        return;
+      }
+      const observeDisabled = session.operation_mode === "observe_only";
+      root.innerHTML = `
+        <button ${observeDisabled ? "disabled" : ""} data-action="observe">Observe only</button>
+        <button ${!observeDisabled ? "disabled" : ""} data-action="resume">Resume ${session.startup_mode}</button>
+      `;
+      root.querySelector('[data-action="observe"]')?.addEventListener("click", () => post("/api/system/mode/observe_only"));
+      root.querySelector('[data-action="resume"]')?.addEventListener("click", () => post(`/api/system/mode/${session.startup_mode}`));
+    }
+
+    function renderMarkets(markets) {
+      const root = document.getElementById("marketsTable");
+      if (!markets.length) {
+        root.innerHTML = '<div class="empty">No market data available.</div>';
+        return;
+      }
+
+      root.innerHTML = `
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Market</th>
+              <th>Status</th>
+              <th>Price / Delta</th>
+              <th>UP / DOWN Options</th>
+              <th>PnL</th>
+              <th>Controls</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${markets.map((market) => `
+              <tr>
+                <td>
+                  <div class="market-title">${market.title}</div>
+                  <div class="market-sub">ID: ${market.market_id || "-"} | base: ${market.base_status}</div>
+                </td>
+                <td>
+                  <div>${market.status}</div>
+                  <div class="muted">${market.is_active ? `sec left: ${market.sec_left.toFixed(1)}` : "idle"}</div>
+                </td>
+                <td>
+                  <div>${money(market.live_price)}</div>
+                  <div class="${colorClass(market.delta)}">delta ${money(market.delta)}</div>
+                </td>
+                <td>
+                  <div class="muted">UP buy ${market.up_buy_price.toFixed(3)} | sell ${market.up_sell_price.toFixed(3)}</div>
+                  <div class="muted">DOWN buy ${market.down_buy_price.toFixed(3)} | sell ${market.down_sell_price.toFixed(3)}</div>
+                </td>
+                <td>
+                  <div class="${colorClass(market.floating_pnl_value)}">float ${money(market.floating_pnl_value)} / ${pct(market.floating_pnl_percent)}</div>
+                  <div class="${colorClass(market.realized_pnl_value)}">realized ${money(market.realized_pnl_value)} / ${pct(market.realized_pnl_percent)}</div>
+                </td>
+                <td>
+                  <div class="actions">
+                    <button data-stop="${market.market_key}">Stop + close</button>
+                    <button ${market.can_resume ? "" : "disabled"} data-resume="${market.market_key}">Resume</button>
+                    <button data-close-market="${market.market_key}">Close all</button>
+                  </div>
+                </td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      `;
+
+      root.querySelectorAll("[data-stop]").forEach((button) => {
+        button.addEventListener("click", () => post(`/api/markets/${button.dataset.stop}/stop`));
+      });
+      root.querySelectorAll("[data-resume]").forEach((button) => {
+        button.addEventListener("click", () => post(`/api/markets/${button.dataset.resume}/resume`));
+      });
+      root.querySelectorAll("[data-close-market]").forEach((button) => {
+        button.addEventListener("click", () => post(`/api/markets/${button.dataset.closeMarket}/close-all`));
+      });
+    }
+
+    function renderPositions(positions) {
+      const root = document.getElementById("positionsList");
+      if (!positions.length) {
+        root.innerHTML = '<div class="empty">No open positions.</div>';
+        return;
+      }
+
+      root.innerHTML = positions.map((position) => `
+        <article class="card">
+          <div class="card-head">
+            <div>
+              <div class="market-title">${position.market_title} · ${position.strategy}</div>
+              <div class="muted">Trade #${position.short_id} · ${position.direction}</div>
+            </div>
+            <button data-close-position="${position.trade_id}">Close</button>
+          </div>
+          <div class="metric-inline">
+            <span>Entry ${position.entry_price.toFixed(3)}</span>
+            <span>Current ${position.current_price.toFixed(3)}</span>
+            <span>Value ${money(position.current_value)}</span>
+            <span class="${colorClass(position.pnl_value)}">PnL ${money(position.pnl_value)} / ${pct(position.pnl_percent)}</span>
+          </div>
+          ${position.countdown_type ? `<div class="warning" style="margin-top:10px;">${position.countdown_label}: ${position.countdown_seconds_left.toFixed(1)}s</div>` : ""}
+          ${position.close_blocked ? `<div class="negative" style="margin-top:10px;">Close blocked by exchange constraints</div>` : ""}
+        </article>
+      `).join("");
+
+      root.querySelectorAll("[data-close-position]").forEach((button) => {
+        button.addEventListener("click", () => post(`/api/positions/${button.dataset.closePosition}/close`));
+      });
+    }
+
+    function renderStrategies(strategies) {
+      const root = document.getElementById("strategiesList");
+      if (!strategies.length) {
+        root.innerHTML = '<div class="empty">No active strategies.</div>';
+        return;
+      }
+
+      root.innerHTML = strategies.map((strategy) => `
+        <article class="card">
+          <div class="card-head">
+            <div>
+              <div class="market-title">${strategy.market_title}</div>
+              <div class="muted">${strategy.strategy_label}</div>
+            </div>
+            <button data-strategy-toggle="${strategy.market_key}|${strategy.strategy_key}|${strategy.enabled ? "disable" : "enable"}">
+              ${strategy.enabled ? "Disable" : "Enable"}
+            </button>
+          </div>
+          <div class="metric-inline">
+            <span>Status ${strategy.enabled ? "enabled" : "disabled"}</span>
+            <span>Execution ${strategy.execution_active ? "active" : "paused"}</span>
+            <span>Open positions ${strategy.open_positions}</span>
+            <span class="${colorClass(strategy.pnl_value)}">PnL ${money(strategy.pnl_value)} / ${pct(strategy.pnl_percent)}</span>
+          </div>
+        </article>
+      `).join("");
+
+      root.querySelectorAll("[data-strategy-toggle]").forEach((button) => {
+        button.addEventListener("click", () => {
+          const [marketKey, strategyKey, action] = button.dataset.strategyToggle.split("|");
+          post(`/api/strategies/${marketKey}/${strategyKey}/${action}`);
+        });
+      });
+    }
+
+    function renderServices(services) {
+      const root = document.getElementById("servicesList");
+      root.innerHTML = services.map((service) => `
+        <div class="service-row">
+          <div>
+            <div class="market-title">${service.name}</div>
+            <div class="muted">${service.details || "no extra details"}</div>
+          </div>
+          <div class="${service.status === "connected" || service.status === "ready" ? "positive" : service.status === "error" ? "negative" : "warning"}">
+            ${service.status}
+          </div>
+        </div>
+      `).join("");
+    }
+
+    function renderDashboard(dashboard) {
+      state.dashboard = dashboard;
+      renderSummary(dashboard.session);
+      renderModes(dashboard.session);
+      renderMarkets(dashboard.markets);
+      renderPositions(dashboard.positions);
+      renderStrategies(dashboard.strategies);
+      renderServices(dashboard.services);
+    }
+
+    async function bootstrap() {
+      if (window.location.protocol === "file:") {
+        setConnectionInfo(
+          `The dashboard file is opened locally. Using API at ${API_BASE}.`,
+          "Preferred option: open the dashboard from the bot server address, for example http://127.0.0.1:8000/"
+        );
+      }
+
+      const response = await fetch(`${API_BASE}/api/dashboard`);
+      if (!response.ok) {
+        throw new Error(`API ${API_BASE}/api/dashboard zwrocilo status ${response.status}`);
+      }
+      const initial = await response.json();
+      renderDashboard(initial);
+
+      const wsBase = API_BASE.replace(/^http:/, "ws:").replace(/^https:/, "wss:");
+      const socket = new WebSocket(`${wsBase}/ws/dashboard`);
+      socket.addEventListener("message", (event) => {
+        renderDashboard(JSON.parse(event.data));
+      });
+      socket.addEventListener("close", () => {
+        setTimeout(bootstrap, 1500);
+      });
+    }
+
+    bootstrap().catch((error) => {
+      document.body.innerHTML = `<main class="app"><section class="panel"><h2>Dashboard Error</h2><p>${error.message}</p><p class="muted">Start the bot and open the dashboard at http://127.0.0.1:8000/ or add ?api=http://127.0.0.1:8000 to the file URL.</p></section></main>`;
+    });
+  </script>
+</body>
+</html>
