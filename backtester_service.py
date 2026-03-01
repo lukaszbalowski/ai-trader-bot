@@ -12,9 +12,14 @@ from pathlib import Path
 from backtester_runtime import (
     RUNTIME_DIR,
     WORKSPACE_PATH,
+    apply_pending_tracked_updates,
+    get_pending_tracked_updates,
+    get_strategy_history_details,
     build_catalog,
     build_idle_state,
     build_job_payload,
+    queue_tracked_strategy_update,
+    queue_tracked_strategy_update_variant,
     read_state,
     utc_now_iso,
     write_state,
@@ -24,6 +29,12 @@ from backtester_runtime import (
 class BacktesterService:
     def __init__(self) -> None:
         self.process: subprocess.Popen | None = None
+
+    @staticmethod
+    def _decorate_state(state: dict) -> dict:
+        payload = dict(state)
+        payload["tracked_updates"] = get_pending_tracked_updates()
+        return payload
 
     def _state(self) -> dict:
         self._sync_process_status()
@@ -77,13 +88,24 @@ class BacktesterService:
             selected_strategies=selected_strategies,
             manual_samples=manual_samples,
         )
-        catalog["status"] = self._state()
+        catalog["status"] = self._decorate_state(self._state())
         return catalog
 
     def get_status(self) -> dict:
-        state = self._state()
+        state = self._decorate_state(self._state())
         state["cpu"] = self._cpu_snapshot()
         return state
+
+    def get_strategy_details(self, market_key: str, strategy_key: str) -> dict:
+        return get_strategy_history_details(market_key, strategy_key)
+
+    def queue_tracked_update(self, market_key: str, strategy_key: str, selected_variant: dict | None = None) -> dict:
+        if selected_variant is not None:
+            return queue_tracked_strategy_update_variant(market_key, strategy_key, selected_variant)
+        return queue_tracked_strategy_update(market_key, strategy_key)
+
+    def apply_tracked_updates(self) -> dict:
+        return apply_pending_tracked_updates()
 
     def _cpu_snapshot(self) -> dict:
         per_core = self._sample_linux_proc_stat()

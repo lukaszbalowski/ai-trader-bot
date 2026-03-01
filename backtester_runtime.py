@@ -16,6 +16,9 @@ from pathlib import Path
 from backtester import (
     MONTE_CARLO_LIMIT,
     QUICK_MONTE_CARLO_LIMIT,
+    TRACKED_CONFIGS_FILE,
+    TRACKED_CONFIG_MARKETS,
+    TRACKED_CONFIG_STRATEGIES,
     calculate_composite_score,
     create_crash_dump,
     format_sampling_reason,
@@ -54,6 +57,8 @@ BACKTEST_HISTORY_PATH = Path("data/backtest_history.db")
 RUNTIME_DIR = Path("data/backtester/runtime")
 LATEST_STATE_PATH = RUNTIME_DIR / "latest_state.json"
 WORKSPACE_PATH = Path(__file__).resolve().parent
+TRACKED_CONFIGS_PATH = (WORKSPACE_PATH / TRACKED_CONFIGS_FILE).resolve()
+PENDING_TRACKED_UPDATES_PATH = RUNTIME_DIR / "pending_tracked_updates.json"
 SYMBOL_ORDER = {"BTC": 0, "ETH": 1, "SOL": 2, "XRP": 3}
 TIMEFRAME_ORDER = {"5m": 0, "15m": 1, "1h": 2, "4h": 3}
 FULL_ENUMERATION_LIMIT = 250_000
@@ -107,6 +112,368 @@ def format_mode_label(mode: str, adaptive: bool = False) -> str:
 def market_sort_key(market_key: str) -> tuple[int, int, str]:
     symbol, timeframe = market_key.split("_", 1)
     return (TIMEFRAME_ORDER.get(timeframe, 99), SYMBOL_ORDER.get(symbol, 99), market_key)
+
+
+def parse_market_key(market_key: str) -> tuple[str, str]:
+    if "_" not in market_key:
+        raise ValueError(f"Niepoprawny market_key: {market_key}")
+    return market_key.split("_", 1)
+
+
+def timeframe_to_interval_seconds(timeframe: str) -> int:
+    if timeframe.endswith("m"):
+        return int(timeframe[:-1]) * 60
+    if timeframe.endswith("h"):
+        return int(timeframe[:-1]) * 3600
+    raise ValueError(f"Nieobsługiwany timeframe: {timeframe}")
+
+
+def atomic_write_json(path: Path, payload: object) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = path.with_suffix(f"{path.suffix}.tmp")
+    tmp_path.write_text(json.dumps(payload, indent=4), encoding="utf-8")
+    tmp_path.replace(path)
+
+
+def history_rank_key(item: dict | sqlite3.Row) -> tuple[float, float, float, int]:
+    return (
+        float(item["pnl_usd"] or 0.0),
+        float(item["pnl_percent"] or 0.0),
+        float(item["win_rate"] or 0.0),
+        int(item["trades_count"] or 0),
+    )
+
+
+def load_history_variants(
+    symbol: str,
+    timeframe: str,
+    strategy_key: str,
+    *,
+    order_by: str,
+    limit: int,
+) -> list[dict]:
+    if not BACKTEST_HISTORY_PATH.exists():
+        return []
+
+    conn = sqlite3.connect(BACKTEST_HISTORY_PATH)
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = conn.execute(
+            f"""
+            SELECT
+                rr.created_at AS timestamp,
+                rr.symbol,
+                rr.timeframe,
+                rr.strategy,
+                rr.parameters,
+                rr.pnl_usd,
+                rr.pnl_percent,
+                rr.win_rate,
+                rr.trades_count,
+                CASE
+                    WHEN LOWER(COALESCE(r.mode, '')) LIKE '%adaptive%' THEN 1
+                    ELSE 0
+                END AS adaptive
+            FROM backtest_run_results rr
+            LEFT JOIN backtest_runs r ON r.run_id = rr.run_id
+            WHERE rr.symbol = ? AND rr.timeframe = ? AND rr.strategy = ?
+            ORDER BY {order_by.replace("timestamp", "rr.created_at")}
+            LIMIT ?
+            """,
+            (symbol, timeframe, strategy_key, limit),
+        ).fetchall()
+        if not rows:
+            rows = conn.execute(
+                f"""
+                SELECT
+                    timestamp,
+                    symbol,
+                    timeframe,
+                    strategy,
+                    parameters,
+                    pnl_usd,
+                    pnl_percent,
+                    win_rate,
+                    trades_count,
+                    0 AS adaptive
+                FROM optimization_logs
+                WHERE symbol = ? AND timeframe = ? AND strategy = ?
+                ORDER BY {order_by}
+                LIMIT ?
+                """,
+                (symbol, timeframe, strategy_key, limit),
+            ).fetchall()
+    except sqlite3.OperationalError:
+        rows = []
+    finally:
+        conn.close()
+
+    variants = []
+    for row in rows:
+        try:
+            parameters = json.loads(row["parameters"]) if row["parameters"] else {}
+        except json.JSONDecodeError:
+            parameters = {}
+        variants.append(
+            {
+                "market_key": f"{row['symbol']}_{row['timeframe']}",
+                "market_label": f"{row['symbol']} {row['timeframe']}",
+                "strategy_key": row["strategy"],
+                "strategy_label": strategy_label(row["strategy"]) if row["strategy"] in STRATEGY_SPECS else row["strategy"],
+                "timestamp": row["timestamp"],
+                "pnl_usd": float(row["pnl_usd"] or 0.0),
+                "pnl_percent": float(row["pnl_percent"] or 0.0),
+                "win_rate": float(row["win_rate"] or 0.0),
+                "trades_count": int(row["trades_count"] or 0),
+                "parameters": parameters,
+                "adaptive": bool(row["adaptive"]),
+            }
+        )
+    return variants
+
+
+def get_recent_history_variants(symbol: str, timeframe: str, strategy_key: str, limit: int = 10) -> list[dict]:
+    variants = load_history_variants(
+        symbol,
+        timeframe,
+        strategy_key,
+        order_by="timestamp DESC, pnl_usd DESC, pnl_percent DESC, win_rate DESC",
+        limit=limit,
+    )
+    if not variants:
+        return variants
+    best = max(variants, key=history_rank_key)
+    for variant in variants:
+        variant["is_best"] = variant == best
+    return variants
+
+
+def get_top_history_variants(symbol: str, timeframe: str, strategy_key: str, limit: int = 5) -> list[dict]:
+    variants = load_history_variants(
+        symbol,
+        timeframe,
+        strategy_key,
+        order_by="pnl_usd DESC, pnl_percent DESC, win_rate DESC, trades_count DESC, timestamp DESC",
+        limit=limit,
+    )
+    for index, variant in enumerate(variants):
+        variant["rank"] = index + 1
+        variant["is_best"] = index == 0
+    return variants
+
+
+def ensure_strategy_id(symbol: str, timeframe: str, strategy_key: str, parameters: dict) -> dict:
+    payload = dict(parameters or {})
+    if payload.get("id"):
+        return payload
+    id_prefix = STRATEGY_SPECS.get(strategy_key, {}).get("id_prefix", strategy_key)
+    payload["id"] = f"{symbol.lower()}_{timeframe}_{id_prefix}_{uuid.uuid4().hex[:8]}"
+    return payload
+
+
+def build_tracked_strategy_payload(
+    symbol: str,
+    timeframe: str,
+    strategy_key: str,
+    parameters: dict,
+    win_rate: float,
+) -> dict:
+    if strategy_key not in TRACKED_CONFIG_STRATEGIES:
+        raise ValueError(f"Strategia {strategy_key} nie jest obsługiwana przez tracked configs.")
+
+    prepared = ensure_strategy_id(symbol, timeframe, strategy_key, parameters)
+    prepared["wr"] = round(float(win_rate or 0.0), 1)
+
+    if strategy_key == "kinetic_sniper":
+        return {
+            "window_ms": prepared.get("window_ms", 1000),
+            "trigger_pct": prepared.get("trigger_pct", 0.0),
+            "max_price": prepared.get("max_price", 0.85),
+            "max_slippage": prepared.get("max_slippage", 0.025),
+            "id": prepared.get("id", ""),
+            "wr": prepared.get("wr", 0.0),
+        }
+
+    return {
+        key: value
+        for key, value in prepared.items()
+        if key not in {"g_sec", "max_delta_abs"}
+    }
+
+
+def load_tracked_configs_payload() -> list[dict]:
+    if not TRACKED_CONFIGS_PATH.exists():
+        return []
+    return json.loads(TRACKED_CONFIGS_PATH.read_text(encoding="utf-8"))
+
+
+def build_market_defaults(symbol: str, timeframe: str, existing_configs: list[dict]) -> dict:
+    market_key = f"{symbol}_{timeframe}"
+    for config in existing_configs:
+        if config.get("symbol") == symbol and config.get("timeframe") == timeframe:
+            return {
+                "symbol": config.get("symbol", symbol),
+                "pair": config.get("pair", f"{symbol}USDT"),
+                "timeframe": config.get("timeframe", timeframe),
+                "interval": int(config.get("interval", timeframe_to_interval_seconds(timeframe))),
+                "decimals": int(config.get("decimals", 2)),
+                "offset": float(config.get("offset", 0.0)),
+            }
+
+    for known_symbol, known_timeframe, decimals in TRACKED_CONFIG_MARKETS:
+        if f"{known_symbol}_{known_timeframe}" == market_key:
+            return {
+                "symbol": symbol,
+                "pair": f"{symbol}USDT",
+                "timeframe": timeframe,
+                "interval": timeframe_to_interval_seconds(timeframe),
+                "decimals": decimals,
+                "offset": 0.0,
+            }
+
+    same_symbol = next((config for config in existing_configs if config.get("symbol") == symbol), None)
+    return {
+        "symbol": symbol,
+        "pair": f"{symbol}USDT",
+        "timeframe": timeframe,
+        "interval": timeframe_to_interval_seconds(timeframe),
+        "decimals": int((same_symbol or {}).get("decimals", 2)),
+        "offset": float((same_symbol or {}).get("offset", 0.0)),
+    }
+
+
+def read_pending_tracked_updates() -> dict:
+    if not PENDING_TRACKED_UPDATES_PATH.exists():
+        return {"updated_at": None, "items": {}}
+    payload = json.loads(PENDING_TRACKED_UPDATES_PATH.read_text(encoding="utf-8"))
+    payload.setdefault("updated_at", None)
+    payload.setdefault("items", {})
+    return payload
+
+
+def write_pending_tracked_updates(payload: dict) -> None:
+    atomic_write_json(PENDING_TRACKED_UPDATES_PATH, payload)
+
+
+def get_pending_tracked_updates() -> dict:
+    payload = read_pending_tracked_updates()
+    items = payload.get("items", {})
+    return {
+        "updated_at": payload.get("updated_at"),
+        "count": len(items),
+        "combo_keys": sorted(items.keys()),
+        "items": items,
+        "tracked_configs_path": str(TRACKED_CONFIGS_PATH),
+    }
+
+
+def get_strategy_history_details(market_key: str, strategy_key: str) -> dict:
+    symbol, timeframe = parse_market_key(market_key)
+    top_history = get_top_history_variants(symbol, timeframe, strategy_key, limit=5)
+    recent_variants = get_recent_history_variants(symbol, timeframe, strategy_key, limit=10)
+    pending = get_pending_tracked_updates().get("items", {}).get(f"{market_key}|{strategy_key}")
+    best_variant = top_history[0] if top_history else next((item for item in recent_variants if item.get("is_best")), None)
+    return {
+        "combo_key": f"{market_key}|{strategy_key}",
+        "market_key": market_key,
+        "market_label": f"{symbol} {timeframe}",
+        "strategy_key": strategy_key,
+        "strategy_label": strategy_label(strategy_key) if strategy_key in STRATEGY_SPECS else strategy_key,
+        "top_history": top_history,
+        "recent_variants": recent_variants,
+        "best_variant": best_variant,
+        "queued_update": pending,
+        "tracked_configs_path": str(TRACKED_CONFIGS_PATH),
+        "supports_tracked_config": strategy_key in TRACKED_CONFIG_STRATEGIES,
+    }
+
+
+def queue_tracked_strategy_update(market_key: str, strategy_key: str) -> dict:
+    details = get_strategy_history_details(market_key, strategy_key)
+    selected_variant = details.get("best_variant")
+    return queue_tracked_strategy_update_variant(market_key, strategy_key, selected_variant)
+
+
+def queue_tracked_strategy_update_variant(
+    market_key: str,
+    strategy_key: str,
+    selected_variant: dict | None,
+) -> dict:
+    details = get_strategy_history_details(market_key, strategy_key)
+    if not selected_variant:
+        raise ValueError("Brak historycznego wariantu do dodania do tracked configs.")
+    if not isinstance(selected_variant, dict):
+        raise ValueError("Niepoprawny wariant historyczny.")
+    if not selected_variant.get("parameters"):
+        raise ValueError("Wybrany wariant nie ma parametrów.")
+
+    symbol, timeframe = parse_market_key(market_key)
+    config_payload = build_tracked_strategy_payload(
+        symbol,
+        timeframe,
+        strategy_key,
+        selected_variant.get("parameters", {}),
+        selected_variant.get("win_rate", 0.0),
+    )
+
+    store = read_pending_tracked_updates()
+    combo_key = f"{market_key}|{strategy_key}"
+    store["items"][combo_key] = {
+        "combo_key": combo_key,
+        "market_key": market_key,
+        "market_label": f"{symbol} {timeframe}",
+        "symbol": symbol,
+        "timeframe": timeframe,
+        "strategy_key": strategy_key,
+        "strategy_label": details["strategy_label"],
+        "selected_at": utc_now_iso(),
+        "source": "historical_best",
+        "selected_variant": selected_variant,
+        "config_payload": config_payload,
+    }
+    store["updated_at"] = utc_now_iso()
+    write_pending_tracked_updates(store)
+    return {
+        "queued": store["items"][combo_key],
+        "tracked_updates": get_pending_tracked_updates(),
+    }
+
+
+def apply_pending_tracked_updates() -> dict:
+    store = read_pending_tracked_updates()
+    pending_items = list(store.get("items", {}).values())
+    if not pending_items:
+        return {
+            "applied_count": 0,
+            "tracked_updates": get_pending_tracked_updates(),
+            "tracked_configs_path": str(TRACKED_CONFIGS_PATH),
+        }
+
+    tracked_configs = load_tracked_configs_payload()
+    market_index = {
+        f"{item.get('symbol')}_{item.get('timeframe')}": index
+        for index, item in enumerate(tracked_configs)
+    }
+
+    for pending in pending_items:
+        market_key = pending["market_key"]
+        if market_key not in market_index:
+            tracked_configs.append(
+                build_market_defaults(pending["symbol"], pending["timeframe"], tracked_configs)
+            )
+            market_index[market_key] = len(tracked_configs) - 1
+        config = dict(tracked_configs[market_index[market_key]])
+        config[pending["strategy_key"]] = pending["config_payload"]
+        tracked_configs[market_index[market_key]] = config
+
+    tracked_configs.sort(key=lambda item: market_sort_key(f"{item['symbol']}_{item['timeframe']}"))
+    atomic_write_json(TRACKED_CONFIGS_PATH, tracked_configs)
+    write_pending_tracked_updates({"updated_at": utc_now_iso(), "items": {}})
+    return {
+        "applied_count": len(pending_items),
+        "tracked_updates": get_pending_tracked_updates(),
+        "tracked_configs_path": str(TRACKED_CONFIGS_PATH),
+    }
 
 
 def build_parameter_rows(param_axes: dict[str, list]) -> list[dict]:
@@ -682,9 +1049,30 @@ def get_historical_top3() -> list[dict]:
     return results
 
 
+def serialize_run_result_row(row: sqlite3.Row) -> dict:
+    return {
+        "combo_key": f"{row['market_key']}|{row['strategy']}",
+        "market_key": row["market_key"],
+        "market_label": f"{row['symbol']} {row['timeframe']}",
+        "strategy_key": row["strategy"],
+        "strategy_label": strategy_label(row["strategy"]) if row["strategy"] in STRATEGY_SPECS else row["strategy"],
+        "pnl_usd": float(row["pnl_usd"] or 0.0),
+        "pnl_percent": float(row["pnl_percent"] or 0.0),
+        "win_rate": float(row["win_rate"] or 0.0),
+        "trades_count": int(row["trades_count"] or 0),
+        "parameters": json.loads(row["parameters"]) if row["parameters"] else {},
+        "sampled_count": int(row["sampled_count"] or 0),
+        "total_param_combinations": int(row["total_param_combinations"] or 0),
+        "ticks_count": int(row["ticks_count"] or 0),
+        "estimated_operations": int(row["estimated_operations"] or 0),
+        "created_at": row["created_at"],
+        "adaptive": False,
+    }
+
+
 def get_last_run_summary() -> dict:
     if not BACKTEST_HISTORY_PATH.exists():
-        return {"last_run": None, "historical_top_3": []}
+        return {"last_run": None, "historical_top_3": [], "completed_results": [], "best_of_run": None}
 
     ensure_run_tables()
     conn = sqlite3.connect(BACKTEST_HISTORY_PATH)
@@ -699,6 +1087,7 @@ def get_last_run_summary() -> dict:
             """
         ).fetchone()
         result_row = None
+        result_rows = []
         if run_row:
             result_row = conn.execute(
                 """
@@ -710,11 +1099,24 @@ def get_last_run_summary() -> dict:
                 """,
                 (run_row["run_id"],),
             ).fetchone()
+            result_rows = conn.execute(
+                """
+                SELECT *
+                FROM backtest_run_results
+                WHERE run_id = ?
+                ORDER BY pnl_usd DESC, pnl_percent DESC, win_rate DESC
+                LIMIT 8
+                """,
+                (run_row["run_id"],),
+            ).fetchall()
     finally:
         conn.close()
 
     last_run = None
+    completed_results = [serialize_run_result_row(row) for row in result_rows]
     if run_row:
+        run_adaptive = "adaptive" in str(run_row["mode"] or "").lower()
+        completed_results = [{**item, "adaptive": run_adaptive} for item in completed_results]
         last_run = {
             "run_id": run_row["run_id"],
             "status": run_row["status"],
@@ -728,6 +1130,8 @@ def get_last_run_summary() -> dict:
             "total_grid_points": int(run_row["total_grid_points"] or 0),
             "total_estimated_operations": int(run_row["total_estimated_operations"] or 0),
             "best_result": None,
+            "results": completed_results,
+            "adaptive": run_adaptive,
         }
         if result_row:
             last_run["best_result"] = {
@@ -740,10 +1144,13 @@ def get_last_run_summary() -> dict:
                 "win_rate": float(result_row["win_rate"] or 0.0),
                 "trades_count": int(result_row["trades_count"] or 0),
                 "parameters": json.loads(result_row["parameters"]) if result_row["parameters"] else {},
+                "adaptive": run_adaptive,
             }
     return {
         "last_run": last_run,
         "historical_top_3": get_historical_top3(),
+        "completed_results": completed_results,
+        "best_of_run": completed_results[0] if completed_results else (last_run["best_result"] if last_run else None),
     }
 
 
@@ -1309,13 +1716,14 @@ def result_payload(entry: dict, best_result: dict) -> dict:
         "total_param_combinations": entry["total_param_combinations"],
         "ticks_count": entry["ticks_count"],
         "estimated_operations": entry["estimated_operations"],
+        "adaptive": bool(entry.get("adaptive")),
     }
 
 
 def run_fast_track_job(plan: dict, progress_state: RuntimeState) -> tuple[list[dict], dict | None]:
     progress_state.log("Tryb fast-track: brak pełnego backtestu, pobieram najlepsze historyczne konfiguracje.")
-    refresh_tracked_configs_from_history(db_path=str(BACKTEST_HISTORY_PATH), config_file="tracked_configs.json")
-    progress_state.log("tracked_configs.json zaktualizowany z bazy historii.")
+    refresh_tracked_configs_from_history(db_path=str(BACKTEST_HISTORY_PATH), config_file=str(TRACKED_CONFIGS_PATH))
+    progress_state.log(f"tracked_configs.json zaktualizowany automatycznie: {TRACKED_CONFIGS_PATH}")
     historical_top = get_historical_top3()
     selected = [
         item
@@ -1340,6 +1748,7 @@ def run_fast_track_job(plan: dict, progress_state: RuntimeState) -> tuple[list[d
                 "total_param_combinations": 0,
                 "ticks_count": 0,
                 "estimated_operations": 0,
+                "adaptive": False,
             }
         )
     best_of_run = completed_results[0] if completed_results else None
@@ -1418,8 +1827,8 @@ def run_job(job: dict) -> None:
         )
 
     elapsed_sec = time.time() - start_ts
-    refresh_tracked_configs_from_history(db_path=str(BACKTEST_HISTORY_PATH), config_file="tracked_configs.json")
-    progress_state.log("tracked_configs.json zaktualizowany po zakończeniu backtestu.")
+    refresh_tracked_configs_from_history(db_path=str(BACKTEST_HISTORY_PATH), config_file=str(TRACKED_CONFIGS_PATH))
+    progress_state.log(f"tracked_configs.json zaktualizowany automatycznie po backteście: {TRACKED_CONFIGS_PATH}")
     finish_run_record(job["run_id"], "completed", elapsed_sec, plan["summary"], best_of_run)
     progress_state.complete("completed", best_of_run, progress_state.state["results"]["completed_results"])
 

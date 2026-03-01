@@ -145,6 +145,28 @@ def create_dashboard_app(state_store, command_bus, mode_manager) -> FastAPI:
     async def get_backtester_status() -> dict:
         return backtester_service.get_status()
 
+    @app.get("/api/backtester/strategy-details")
+    async def get_backtester_strategy_details(market_key: str, strategy_key: str) -> dict:
+        try:
+            return backtester_service.get_strategy_details(market_key, strategy_key)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/api/backtester/tracked-configs/queue")
+    async def queue_backtester_tracked_config(payload: dict) -> dict:
+        try:
+            return backtester_service.queue_tracked_update(
+                payload.get("market_key", ""),
+                payload.get("strategy_key", ""),
+                payload.get("selected_variant"),
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/api/backtester/tracked-configs/apply")
+    async def apply_backtester_tracked_configs() -> dict:
+        return backtester_service.apply_tracked_updates()
+
     @app.post("/api/backtester/start")
     async def start_backtester(payload: dict) -> dict:
         try:

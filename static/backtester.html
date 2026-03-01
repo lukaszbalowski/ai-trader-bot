@@ -212,6 +212,12 @@
       border-color: rgba(92, 200, 161, 0.35);
     }
 
+    button.attention {
+      background: rgba(255, 188, 92, 0.16);
+      border-color: rgba(255, 188, 92, 0.45);
+      color: #fff3d6;
+    }
+
     button.danger {
       background: rgba(255, 111, 111, 0.08);
       border-color: rgba(255, 111, 111, 0.32);
@@ -289,6 +295,123 @@
       margin-top: 14px;
       display: grid;
       gap: 14px;
+    }
+
+    details.result-card {
+      padding: 0;
+      overflow: hidden;
+    }
+
+    .result-summary {
+      padding: 16px 18px;
+    }
+
+    .result-body {
+      padding: 0 18px 18px;
+      display: grid;
+      gap: 14px;
+      border-top: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.02);
+    }
+
+    .history-block,
+    .preview-block {
+      display: grid;
+      gap: 10px;
+    }
+
+    .history-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .history-item {
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 12px 14px;
+      background: rgba(255, 255, 255, 0.03);
+      display: grid;
+      gap: 8px;
+    }
+
+    .history-item.best,
+    .queued-update {
+      border-color: rgba(255, 188, 92, 0.5);
+      background: linear-gradient(180deg, rgba(255, 188, 92, 0.12), rgba(255, 255, 255, 0.03));
+    }
+
+    .history-head,
+    .section-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    .badge-row,
+    .param-pills,
+    .action-row {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .history-actions {
+      display: flex;
+      justify-content: flex-end;
+      margin-top: 4px;
+    }
+
+    button.variant-pick {
+      padding: 6px 10px;
+      font-size: 11px;
+      min-height: 28px;
+    }
+
+    .badge {
+      border-radius: 999px;
+      padding: 4px 10px;
+      font-size: 11px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      border: 1px solid var(--line);
+      color: var(--muted);
+      background: rgba(255, 255, 255, 0.04);
+    }
+
+    .badge.best {
+      color: #fff3d6;
+      border-color: rgba(255, 188, 92, 0.5);
+      background: rgba(255, 188, 92, 0.16);
+    }
+
+    .badge.queued {
+      color: #dff7ee;
+      border-color: rgba(92, 200, 161, 0.4);
+      background: rgba(92, 200, 161, 0.12);
+    }
+
+    .badge.adaptive {
+      color: #dff2ff;
+      border-color: rgba(126, 192, 255, 0.7);
+      background: rgba(70, 140, 255, 0.28);
+    }
+
+    .badge.standard {
+      color: #e9f7e6;
+      border-color: rgba(92, 200, 161, 0.58);
+      background: rgba(92, 200, 161, 0.2);
+    }
+
+    .param-pill {
+      font-family: var(--font-display);
+      font-size: 12px;
+      padding: 6px 10px;
+    }
+
+    .mono {
+      font-family: var(--font-display);
     }
 
     .param-table {
@@ -483,7 +606,7 @@
         <button class="primary" id="startButton">Start Backtest</button>
         <button class="danger" id="stopButton">Stop</button>
       </div>
-      <div class="option-sub">Po zakończeniu przebiegu dashboard odświeża <code>tracked_configs.json</code> z najlepszych wyników historii.</div>
+      <div class="option-sub">Po zakończeniu backtestu plik <code>tracked_configs.json</code> jest automatycznie nadpisywany najlepszymi wynikami historii, a dodatkowo możesz ręcznie kolejkować wybrane warianty i nadpisać je przyciskiem <code>Update Tracked-Configs</code>.</div>
       <div class="status-line" id="actionStatus"></div>
     </section>
 
@@ -565,17 +688,18 @@
           <h2>Wynik Ostatniego Testu</h2>
           <div id="lastRunBest"></div>
         </section>
-
-        <section class="panel">
-          <h2>Top 3 Historyczne PnL</h2>
-          <div id="historicalTop" class="result-list"></div>
-        </section>
       </div>
     </div>
 
     <div class="layout secondary">
       <section class="panel">
-        <h2>Siatka i Monte Carlo</h2>
+        <div class="panel-head">
+          <div>
+            <h2>Siatka i Monte Carlo</h2>
+            <div class="option-sub" id="trackedQueueMeta">Brak oczekujących zmian do tracked configs.</div>
+          </div>
+          <button id="updateTrackedConfigsButton">Update Tracked-Configs</button>
+        </div>
         <div id="comboList" class="combo-list"></div>
       </section>
 
@@ -596,6 +720,9 @@
       manualSamples: {},
       catalog: null,
       status: null,
+      detailsCache: {},
+      expandedCombos: new Set(),
+      expandedLastRun: new Set(),
       pollHandle: null,
     };
 
@@ -632,6 +759,179 @@
       return "warning";
     }
 
+    function escapeHtml(value) {
+      return String(value ?? "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#39;");
+    }
+
+    function formatTimestamp(value) {
+      if (!value) return "--";
+      return String(value).replace("T", " ").replace("Z", "").split(".")[0];
+    }
+
+    function comboKey(marketKey, strategyKey) {
+      return `${marketKey}|${strategyKey}`;
+    }
+
+    function trackedUpdates() {
+      return appState.status?.tracked_updates || appState.catalog?.status?.tracked_updates || { count: 0, combo_keys: [], items: {} };
+    }
+
+    function isQueued(combo) {
+      return trackedUpdates().combo_keys?.includes(combo);
+    }
+
+    function renderTestModeBadge(enabled) {
+      return enabled
+        ? '<span class="badge adaptive">adaptive-grid</span>'
+        : '<span class="badge standard">standard-grid</span>';
+    }
+
+    function resolveComboBadgeMode(item) {
+      const details = appState.detailsCache?.[item.combo_key];
+      if (details?.queued_update?.selected_variant) {
+        return Boolean(details.queued_update.selected_variant.adaptive);
+      }
+      if (details?.best_variant) {
+        return Boolean(details.best_variant.adaptive);
+      }
+      return Boolean(item.adaptive);
+    }
+
+    function resolveLastRunBadgeMode(item) {
+      const details = appState.detailsCache?.[item.combo_key];
+      if (details?.top_history?.length) {
+        return Boolean(details.top_history[0].adaptive);
+      }
+      if (details?.best_variant) {
+        return Boolean(details.best_variant.adaptive);
+      }
+      return Boolean(item.adaptive ?? appState.status?.results?.last_run?.adaptive);
+    }
+
+    function formatParams(parameters = {}) {
+      const entries = Object.entries(parameters || {});
+      if (!entries.length) {
+        return '<span class="option-sub">Brak parametrów.</span>';
+      }
+      return `
+        <div class="param-pills">
+          ${entries.map(([key, value]) => `<span class="badge param-pill">${escapeHtml(key)}=${escapeHtml(value)}</span>`).join("")}
+        </div>
+      `;
+    }
+
+    function variantSignature(item) {
+      return JSON.stringify({
+        timestamp: item?.timestamp || "",
+        parameters: item?.parameters || {},
+      });
+    }
+
+    function isQueuedVariant(details, item) {
+      return variantSignature(details?.queued_update?.selected_variant) === variantSignature(item);
+    }
+
+    function renderVariantList(items, emptyMessage, options = {}) {
+      if (!items?.length) {
+        return `<div class="empty">${emptyMessage}</div>`;
+      }
+      const { details = null, selectable = false } = options;
+      return `
+        <div class="history-list">
+          ${items.map((item, index) => `
+            <div class="history-item ${item.is_best ? "best" : ""}">
+              <div class="history-head">
+                <div>
+                  <div class="combo-title">${escapeHtml(item.market_label)} · ${escapeHtml(item.strategy_label)}</div>
+                  <div class="badge-row" style="margin-top:8px;">${renderTestModeBadge(item.adaptive)}</div>
+                </div>
+                <div class="badge-row">
+                  ${item.rank ? `<span class="badge ${item.rank === 1 ? "best" : ""}">#${item.rank}</span>` : ""}
+                  ${item.is_best ? '<span class="badge best">Najlepsza</span>' : ""}
+                </div>
+              </div>
+              <div class="combo-kpis">
+                <span class="${colorClass(item.pnl_usd)}">${money(item.pnl_usd)} / ${pct(item.pnl_percent)}</span>
+                <span>WR ${Number(item.win_rate || 0).toFixed(1)}%</span>
+                <span>T ${number(item.trades_count || 0)}</span>
+                <span>${formatTimestamp(item.timestamp)}</span>
+              </div>
+              ${formatParams(item.parameters)}
+              ${selectable ? `
+                <div class="history-actions">
+                  <button
+                    class="variant-pick ${isQueuedVariant(details, item) ? "attention" : ""}"
+                    data-queue-variant-market="${escapeHtml(details.market_key)}"
+                    data-queue-variant-strategy="${escapeHtml(details.strategy_key)}"
+                    data-queue-variant-index="${index}"
+                  >
+                    Wybierz ten wariant
+                  </button>
+                </div>
+              ` : ""}
+            </div>
+          `).join("")}
+        </div>
+      `;
+    }
+
+    function renderTrackedPreview(details) {
+      if (!details?.queued_update) {
+        return "";
+      }
+      const queued = details.queued_update;
+      return `
+        <div class="preview-block">
+          <div class="section-head">
+            <div class="metric-label">Oczekuje w kolejce tracked configs</div>
+            <span class="badge queued">Queued</span>
+          </div>
+          <div class="option-sub">Zapis docelowy: <span class="mono">${escapeHtml(details.tracked_configs_path || "")}</span></div>
+          ${formatParams(queued.config_payload || {})}
+        </div>
+      `;
+    }
+
+    function renderStrategyDetails(details, context) {
+      if (!details) {
+        return '<div class="empty">Rozwiń kafelek, aby wczytać dane historyczne.</div>';
+      }
+      if (details.loading) {
+        return '<div class="empty">Ładowanie historii strategii...</div>';
+      }
+      if (details.error) {
+        return `<div class="empty">${escapeHtml(details.error)}</div>`;
+      }
+      if (context === "last-run") {
+        return `
+          <div class="history-block">
+            <div class="section-head">
+              <div class="metric-label">5 najlepszych historycznie wariantów dla tego testu</div>
+              <div class="option-sub">Najlepszy wariant jest wyróżniony.</div>
+            </div>
+            ${renderVariantList(details.top_history, "Brak historycznych wariantów dla tego testu.")}
+          </div>
+          ${renderTrackedPreview(details)}
+        `;
+      }
+      return `
+        <div class="history-block">
+          <div class="section-head">
+            <div class="metric-label">10 ostatnich zapisanych wariantów strategii</div>
+            <div class="option-sub">Możesz ręcznie wskazać dowolny wariant z listy i oznaczyć go do nadpisania tracked configs.</div>
+          </div>
+          ${renderVariantList(details.recent_variants, "Brak zapisanych wariantów tej strategii w historii.", { details, selectable: details.supports_tracked_config })}
+        </div>
+        <div class="option-sub">${details.tracked_configs_path ? `Docelowy zapis: <span class="mono">${escapeHtml(details.tracked_configs_path)}</span>` : ""}</div>
+        ${renderTrackedPreview(details)}
+      `;
+    }
+
     function setStatus(message, tone = "muted") {
       const root = document.getElementById("actionStatus");
       root.className = `status-line ${tone}`;
@@ -645,6 +945,73 @@
         throw new Error(payload.detail || "Request failed");
       }
       return payload;
+    }
+
+    async function ensureStrategyDetails(marketKey, strategyKey) {
+      const key = comboKey(marketKey, strategyKey);
+      const cached = appState.detailsCache[key];
+      if (cached?.loading || cached?.loaded) {
+        return cached;
+      }
+      appState.detailsCache[key] = { loading: true };
+      renderLastRun();
+      renderCombinations();
+      try {
+        const payload = await fetchJson(`/api/backtester/strategy-details?market_key=${encodeURIComponent(marketKey)}&strategy_key=${encodeURIComponent(strategyKey)}`);
+        appState.detailsCache[key] = { loaded: true, ...payload };
+      } catch (error) {
+        appState.detailsCache[key] = { error: error.message };
+      }
+      renderLastRun();
+      renderCombinations();
+      return appState.detailsCache[key];
+    }
+
+    async function queueTrackedConfig(marketKey, strategyKey, selectedVariant = null) {
+      try {
+        const payload = await fetchJson("/api/backtester/tracked-configs/queue", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ market_key: marketKey, strategy_key: strategyKey, selected_variant: selectedVariant }),
+        });
+        appState.status = {
+          ...(appState.status || {}),
+          tracked_updates: payload.tracked_updates,
+        };
+        const key = comboKey(marketKey, strategyKey);
+        if (appState.detailsCache[key]) {
+          appState.detailsCache[key] = {
+            ...appState.detailsCache[key],
+            queued_update: payload.queued,
+          };
+        }
+        setStatus(`Dodano ${marketKey} / ${strategyKey} do kolejki tracked configs.`, "positive");
+        renderStatus();
+        renderCatalog();
+      } catch (error) {
+        setStatus(error.message, "negative");
+      }
+    }
+
+    async function applyTrackedConfigUpdates() {
+      try {
+        const payload = await fetchJson("/api/backtester/tracked-configs/apply", { method: "POST" });
+        appState.status = {
+          ...(appState.status || {}),
+          tracked_updates: payload.tracked_updates,
+        };
+        appState.detailsCache = {};
+        setStatus(
+          payload.applied_count
+            ? `Zapisano ${payload.applied_count} zmian do ${payload.tracked_configs_path}.`
+            : "Brak oczekujących zmian do zapisania.",
+          payload.applied_count ? "positive" : "warning"
+        );
+        renderStatus();
+        renderCatalog();
+      } catch (error) {
+        setStatus(error.message, "negative");
+      }
     }
 
     function buildQuery() {
@@ -874,12 +1241,13 @@
         return;
       }
       root.innerHTML = details.map((item) => `
-        <details class="combo-card">
+        <details class="combo-card ${isQueued(item.combo_key) ? "queued-update" : ""}" data-combo-card="${item.combo_key}" data-market-key="${item.market_key}" data-strategy-key="${item.strategy_key}" ${appState.expandedCombos.has(item.combo_key) ? "open" : ""}>
           <summary>
             <div class="combo-top">
               <div>
                 <div class="combo-title">${item.market_label} · ${item.strategy_label}</div>
                 <div class="option-sub">${item.summary}</div>
+                <div class="badge-row" style="margin-top:8px;">${renderTestModeBadge(resolveComboBadgeMode(item))}</div>
               </div>
               <div class="combo-kpis">
                 <span>siatka: ${number(item.raw_total_combinations)}</span>
@@ -917,6 +1285,7 @@
                 `).join("")}
               </tbody>
             </table>
+            ${renderStrategyDetails(appState.detailsCache[item.combo_key], "combo")}
           </div>
         </details>
       `).join("");
@@ -931,6 +1300,33 @@
             appState.manualSamples[comboKey] = value;
           }
           await refreshCatalog();
+        });
+      });
+
+      root.querySelectorAll("[data-combo-card]").forEach((element) => {
+        element.addEventListener("toggle", async (event) => {
+          const detailsElement = event.currentTarget;
+          const key = detailsElement.dataset.comboCard;
+          const marketKey = detailsElement.dataset.marketKey;
+          const strategyKey = detailsElement.dataset.strategyKey;
+          if (detailsElement.open) {
+            appState.expandedCombos.add(key);
+            await ensureStrategyDetails(marketKey, strategyKey);
+          } else {
+            appState.expandedCombos.delete(key);
+          }
+        });
+      });
+
+      root.querySelectorAll("[data-queue-variant-market]").forEach((button) => {
+        button.addEventListener("click", async (event) => {
+          event.preventDefault();
+          const marketKey = event.currentTarget.dataset.queueVariantMarket;
+          const strategyKey = event.currentTarget.dataset.queueVariantStrategy;
+          const variantIndex = Number(event.currentTarget.dataset.queueVariantIndex);
+          const key = comboKey(marketKey, strategyKey);
+          const selectedVariant = appState.detailsCache[key]?.recent_variants?.[variantIndex];
+          await queueTrackedConfig(marketKey, strategyKey, selectedVariant || null);
         });
       });
     }
@@ -997,42 +1393,82 @@
 
     function renderLastRun() {
       const root = document.getElementById("lastRunBest");
-      const best = appState.status?.results?.best_of_run || appState.status?.results?.last_run?.best_result;
-      if (!best) {
-        root.innerHTML = '<div class="empty">Brak zakończonego testu do pokazania.</div>';
+      const items = appState.status?.results?.completed_results || [];
+      if (!items.length) {
+        const best = appState.status?.results?.best_of_run || appState.status?.results?.last_run?.best_result;
+        if (!best) {
+          root.innerHTML = '<div class="empty">Brak zakończonego testu do pokazania.</div>';
+          return;
+        }
+        root.innerHTML = `
+          <div class="result-card">
+            <div class="combo-title">${best.market_label} · ${best.strategy_label}</div>
+            <div class="badge-row" style="margin:8px 0 0;">${renderTestModeBadge(best.adaptive || appState.status?.results?.last_run?.adaptive)}</div>
+            <div class="combo-kpis">
+              <span class="${colorClass(best.pnl_usd)}">${money(best.pnl_usd)} / ${pct(best.pnl_percent)}</span>
+              <span>WR ${Number(best.win_rate || 0).toFixed(1)}%</span>
+              <span>Transakcje ${number(best.trades_count || 0)}</span>
+            </div>
+            <div class="option-sub" style="margin-top:10px;">${Object.entries(best.parameters || {}).map(([key, value]) => `${key}=${value}`).join(", ") || "Brak parametrów."}</div>
+          </div>
+        `;
         return;
       }
-      root.innerHTML = `
-        <div class="result-card">
-          <div class="combo-title">${best.market_label} · ${best.strategy_label}</div>
-          <div class="combo-kpis">
-            <span class="${colorClass(best.pnl_usd)}">${money(best.pnl_usd)} / ${pct(best.pnl_percent)}</span>
-            <span>WR ${Number(best.win_rate || 0).toFixed(1)}%</span>
-            <span>Transakcje ${number(best.trades_count || 0)}</span>
+      root.innerHTML = items.map((item) => `
+        <details class="result-card ${isQueued(item.combo_key) ? "queued-update" : ""}" data-last-run-card="${item.combo_key}" data-market-key="${item.market_key}" data-strategy-key="${item.strategy_key}" ${appState.expandedLastRun.has(item.combo_key) ? "open" : ""}>
+          <summary class="result-summary">
+            <div class="combo-top">
+              <div>
+                <div class="combo-title">${item.market_label} · ${item.strategy_label}</div>
+                <div class="option-sub">${item.created_at ? `Zapis wyniku: ${formatTimestamp(item.created_at)}` : "Kliknij, aby rozwinąć historię tej strategii."}</div>
+                <div class="badge-row" style="margin-top:8px;">${renderTestModeBadge(resolveLastRunBadgeMode(item))}</div>
+              </div>
+              <div class="combo-kpis">
+                <span class="${colorClass(item.pnl_usd)}">${money(item.pnl_usd)} / ${pct(item.pnl_percent)}</span>
+                <span>WR ${Number(item.win_rate || 0).toFixed(1)}%</span>
+                <span>T ${number(item.trades_count || 0)}</span>
+                ${isQueued(item.combo_key) ? '<span class="badge queued">Queued</span>' : ""}
+              </div>
+            </div>
+          </summary>
+          <div class="result-body">
+            <div class="history-block">
+              <div class="metric-label">Parametry zwycięskiego wariantu z ostatniego runu</div>
+              ${formatParams(item.parameters)}
+            </div>
+            ${renderStrategyDetails(appState.detailsCache[item.combo_key], "last-run")}
           </div>
-          <div class="option-sub" style="margin-top:10px;">${Object.entries(best.parameters || {}).map(([key, value]) => `${key}=${value}`).join(", ") || "Brak parametrów."}</div>
-        </div>
-      `;
+        </details>
+      `).join("");
+
+      root.querySelectorAll("[data-last-run-card]").forEach((element) => {
+        element.addEventListener("toggle", async (event) => {
+          const detailsElement = event.currentTarget;
+          const key = detailsElement.dataset.lastRunCard;
+          const marketKey = detailsElement.dataset.marketKey;
+          const strategyKey = detailsElement.dataset.strategyKey;
+          if (detailsElement.open) {
+            appState.expandedLastRun.add(key);
+            await ensureStrategyDetails(marketKey, strategyKey);
+          } else {
+            appState.expandedLastRun.delete(key);
+          }
+        });
+      });
     }
 
-    function renderHistoricalTop() {
-      const root = document.getElementById("historicalTop");
-      const items = appState.status?.results?.historical_top_3 || [];
-      if (!items.length) {
-        root.innerHTML = '<div class="empty">Brak danych historycznych.</div>';
+    function renderTrackedUpdatesMeta() {
+      const pending = trackedUpdates();
+      const button = document.getElementById("updateTrackedConfigsButton");
+      const meta = document.getElementById("trackedQueueMeta");
+      if (!button || !meta) {
         return;
       }
-      root.innerHTML = items.map((item, index) => `
-        <div class="result-card">
-          <div class="combo-title">#${index + 1} · ${item.market_label} · ${item.strategy_label}</div>
-          <div class="combo-kpis">
-            <span class="${colorClass(item.pnl_usd)}">${money(item.pnl_usd)} / ${pct(item.pnl_percent)}</span>
-            <span>WR ${Number(item.win_rate || 0).toFixed(1)}%</span>
-            <span>T ${number(item.trades_count || 0)}</span>
-          </div>
-          <div class="option-sub" style="margin-top:10px;">${item.timestamp || ""}</div>
-        </div>
-      `).join("");
+      button.className = pending.count ? "attention" : "";
+      button.textContent = pending.count ? `Update Tracked-Configs (${pending.count})` : "Update Tracked-Configs";
+      meta.innerHTML = pending.count
+        ? `Oczekuje <strong>${pending.count}</strong> zmian do zapisu. Docelowy plik: <span class="mono">${escapeHtml(pending.tracked_configs_path || "")}</span>.`
+        : "Brak oczekujących zmian do tracked configs.";
     }
 
     function renderLiveResults() {
@@ -1063,8 +1499,8 @@
       document.getElementById("stopButton").disabled = !["starting", "running"].includes(status.status);
       renderProgress();
       renderLastRun();
-      renderHistoricalTop();
       renderLiveResults();
+      renderTrackedUpdatesMeta();
     }
 
     function renderCatalog() {
@@ -1081,6 +1517,7 @@
     async function bootstrap() {
       document.getElementById("startButton").addEventListener("click", startBacktest);
       document.getElementById("stopButton").addEventListener("click", stopBacktest);
+      document.getElementById("updateTrackedConfigsButton").addEventListener("click", applyTrackedConfigUpdates);
       document.getElementById("selectAllMarkets").addEventListener("click", async () => {
         appState.selectedMarkets = (appState.catalog?.available_markets || []).map((item) => item.market_key);
         await refreshCatalog();
