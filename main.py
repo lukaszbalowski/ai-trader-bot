@@ -54,17 +54,21 @@ BURST_LIMIT_SEC = 10
 # --- MICRO-PROTECTION CONSTANTS ---
 PROFIT_SECURE_SEC = 3.0        
 TAKE_PROFIT_MULTIPLIER = 3.0   
-KINETIC_SNIPER_SL_DROP = 0.90  
-KINETIC_SNIPER_TIMEOUT = 10.0  
-KINETIC_SNIPER_TP1_WINDOW = 10.0
-KINETIC_SNIPER_TP2_WINDOW = 20.0
-KINETIC_SNIPER_TP3_WINDOW = 30.0
+KINETIC_SNIPER_SL_DROP = 0.93
+KINETIC_SNIPER_TIMEOUT = 5.0
+KINETIC_SNIPER_TP1_WINDOW = 5.0
+KINETIC_SNIPER_TP2_WINDOW = 15.0
+KINETIC_SNIPER_MAX_HOLD = 15.0
+MOMENTUM_TP1_WINDOW = 5.0
+MOMENTUM_MAX_HOLD = 15.0
+MOMENTUM_SL_DROP = 0.95
 LOSS_RECOVERY_TIMEOUT = 10.0
 POSITION_DUST_SHARES = 0.001
 MIN_MARKET_SELL_SHARES = 0.01
 CLOSE_RECONCILE_GRACE_SEC = 4.0
 CLOSE_PENDING_TIMEOUT = 20.0
 ORPHAN_SCAN_INTERVAL = 15.0
+SIGNAL_SKIP_DEDUPE_SEC = 5.0
 
 SANITY_THRESHOLDS = {
     'BTC': 0.04, 'ETH': 0.05, 'SOL': 0.08, 'XRP': 0.15
@@ -184,11 +188,13 @@ PORTFOLIO_BALANCE = 0.0
 
 MARKET_LOGS_BUFFER = []
 TRADE_LOGS_BUFFER = []
+SIGNAL_SKIP_LOGS_BUFFER = []
 LAST_FLUSH_TS = 0
 RECENT_LOGS = []
 ACTIVE_ERRORS = []
 SESSION_LOG_LINES = []
 SESSION_ERROR_LOGS = []
+SIGNAL_SKIP_DEDUPE = {}
 
 WS_SUBSCRIPTION_QUEUE = asyncio.Queue()
 
@@ -226,6 +232,47 @@ def market_pause_reason(cfg):
     if not MODE_MANAGER.execution_enabled:
         return "[paused] [observe-only]"
     return "[paused]"
+
+
+def record_signal_skip(
+    *,
+    market_id,
+    timeframe,
+    strategy_key,
+    trigger_source,
+    reason_code,
+    detail="",
+    sec_left=0.0,
+    live_price=0.0,
+    target_price=0.0,
+    delta=0.0,
+    buy_up=0.0,
+    buy_down=0.0,
+):
+    now = time.time()
+    dedupe_key = (market_id, timeframe, strategy_key, trigger_source)
+    dedupe_entry = SIGNAL_SKIP_DEDUPE.get(dedupe_key)
+    if dedupe_entry and dedupe_entry["reason_code"] == reason_code and (now - dedupe_entry["ts"]) < SIGNAL_SKIP_DEDUPE_SEC:
+        return
+    SIGNAL_SKIP_DEDUPE[dedupe_key] = {"reason_code": reason_code, "ts": now}
+    SIGNAL_SKIP_LOGS_BUFFER.append(
+        (
+            timeframe,
+            market_id,
+            strategy_key,
+            trigger_source,
+            reason_code,
+            detail[:240],
+            float(sec_left),
+            float(live_price),
+            float(target_price),
+            float(delta),
+            float(buy_up),
+            float(buy_down),
+            datetime.now().isoformat(),
+            SESSION_ID,
+        )
+    )
 
 
 def refresh_market_runtime_flags():
@@ -977,6 +1024,23 @@ async def init_db():
             trade_id TEXT PRIMARY KEY, market_id TEXT, timeframe TEXT, strategy TEXT, direction TEXT,
             invested REAL, entry_price REAL, entry_time TEXT, exit_price REAL, exit_time TEXT, pnl REAL,
             reason TEXT, session_id TEXT)''')
+        await db.execute('''CREATE TABLE IF NOT EXISTS signal_skip_logs_v1 (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timeframe TEXT,
+            market_id TEXT,
+            strategy_key TEXT,
+            trigger_source TEXT,
+            reason_code TEXT,
+            detail TEXT,
+            sec_left REAL,
+            live_price REAL,
+            target_price REAL,
+            delta REAL,
+            buy_up REAL,
+            buy_down REAL,
+            logged_at TEXT,
+            session_id TEXT
+        )''')
         
         new_columns = [
             "session_id TEXT",
@@ -993,8 +1057,9 @@ async def init_db():
     set_service_status('database', 'ready', 'SQLite schema is ready')
 
 async def flush_to_db():
-    global MARKET_LOGS_BUFFER, TRADE_LOGS_BUFFER
-    if not MARKET_LOGS_BUFFER and not TRADE_LOGS_BUFFER: return
+    global MARKET_LOGS_BUFFER, TRADE_LOGS_BUFFER, SIGNAL_SKIP_LOGS_BUFFER
+    if not MARKET_LOGS_BUFFER and not TRADE_LOGS_BUFFER and not SIGNAL_SKIP_LOGS_BUFFER:
+        return
     try:
         async with aiosqlite.connect('data/polymarket.db') as db:
             if MARKET_LOGS_BUFFER:
@@ -1005,10 +1070,18 @@ async def flush_to_db():
                 await db.executemany('''INSERT INTO trade_logs_v10
                     (trade_id, market_id, timeframe, strategy, direction, invested, entry_price, entry_time, exit_price, exit_time, pnl, reason, session_id)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''', TRADE_LOGS_BUFFER)
+            if SIGNAL_SKIP_LOGS_BUFFER:
+                await db.executemany('''INSERT INTO signal_skip_logs_v1
+                    (timeframe, market_id, strategy_key, trigger_source, reason_code, detail, sec_left, live_price, target_price, delta, buy_up, buy_down, logged_at, session_id)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''', SIGNAL_SKIP_LOGS_BUFFER)
             await db.commit()
-        log(f"💾 BULK SAVE: DB Sync ({len(MARKET_LOGS_BUFFER)} Level 2 ticks)")
+        log(
+            f"💾 BULK SAVE: DB Sync ({len(MARKET_LOGS_BUFFER)} Level 2 ticks, "
+            f"{len(TRADE_LOGS_BUFFER)} trades, {len(SIGNAL_SKIP_LOGS_BUFFER)} skip logs)"
+        )
         MARKET_LOGS_BUFFER.clear()
         TRADE_LOGS_BUFFER.clear()
+        SIGNAL_SKIP_LOGS_BUFFER.clear()
     except Exception as e:
         set_service_status('database', 'error', str(e)[:80])
         log_error("Database (flush_to_db)", e)
@@ -1093,20 +1166,24 @@ def calculate_dynamic_size(base_stake, win_rate, market_id):
 def execute_trade(market_id, timeframe, strategy, direction, base_stake, price, symbol, win_rate, strat_id=""):
     global PORTFOLIO_BALANCE
     if not MODE_MANAGER.execution_enabled:
-        return
+        return False, "execution_disabled"
     if not AVAILABLE_TRADE_IDS:
         log_error("ID Pool Exhausted", Exception("No free IDs available."))
-        return
+        return False, "id_pool_exhausted"
     now = time.time()
     if market_id not in TRADE_TIMESTAMPS: TRADE_TIMESTAMPS[market_id] = []
     TRADE_TIMESTAMPS[market_id] = [ts for ts in TRADE_TIMESTAMPS[market_id] if now - ts <= BURST_LIMIT_SEC]
     if len(TRADE_TIMESTAMPS[market_id]) >= BURST_LIMIT_TRADES:
-        return
+        return False, "burst_limit_reached"
         
     size_usd = calculate_dynamic_size(base_stake, win_rate, market_id)
     
-    if price <= 0 or size_usd <= 0 or size_usd > PORTFOLIO_BALANCE: 
-        return
+    if price <= 0:
+        return False, "invalid_price"
+    if size_usd <= 0:
+        return False, "invalid_size"
+    if size_usd > PORTFOLIO_BALANCE:
+        return False, "insufficient_balance"
         
     short_id = AVAILABLE_TRADE_IDS.pop(0)
     PORTFOLIO_BALANCE -= size_usd
@@ -1135,6 +1212,7 @@ def execute_trade(market_id, timeframe, strategy, direction, base_stake, price, 
             token_id = MARKET_CACHE[market_id]['up_id'] if direction == 'UP' else MARKET_CACHE[market_id]['dn_id']
         if token_id:
             asyncio.create_task(live_buy_worker(trade_id, token_id, size_usd, ASYNC_CLOB_CLIENT))
+    return True, None
 
 def close_trade(trade, close_price, reason):
     if trade.get('closing_pending'):
@@ -1747,13 +1825,31 @@ async def evaluate_strategies(trigger_source, pair_filter=None):
             current_offset = m_data.get('offset', 0.0)
             synthetic_oracle_price = live_p - current_offset
             adj_delta = synthetic_oracle_price - m_data['price']
+            _, _, b_up, _, _ = extract_orderbook_metrics(cache['up_id'])
+            _, _, b_dn, _, _ = extract_orderbook_metrics(cache['dn_id'])
+
+            def note_skip(strategy_key, reason_code, detail=""):
+                record_signal_skip(
+                    market_id=m_id,
+                    timeframe=f"{symbol}_{timeframe}",
+                    strategy_key=strategy_key,
+                    trigger_source=trigger_source,
+                    reason_code=reason_code,
+                    detail=detail,
+                    sec_left=sec_left,
+                    live_price=synthetic_oracle_price,
+                    target_price=m_data.get('price', 0.0),
+                    delta=adj_delta,
+                    buy_up=b_up,
+                    buy_down=b_dn,
+                )
             
             sanity_limit = SANITY_THRESHOLDS.get(symbol, 0.05)
             if m_data['price'] > 0 and abs(adj_delta) / m_data['price'] > sanity_limit:
+                for strategy_key in STRATEGY_KEYS:
+                    if is_strategy_enabled(config, strategy_key):
+                        note_skip(strategy_key, "sanity_limit_exceeded", f"delta_ratio={abs(adj_delta) / m_data['price']:.4f}>{sanity_limit:.4f}")
                 continue 
-            
-            _, _, b_up, _, _ = extract_orderbook_metrics(cache['up_id'])
-            _, _, b_dn, _, _ = extract_orderbook_metrics(cache['dn_id'])
             
             # =====================================================================
             # MICRO-PROTECTION ENGINE
@@ -1794,6 +1890,35 @@ async def evaluate_strategies(trigger_source, pair_filter=None):
                         close_trade(trade, current_bid, f"Securing profits before expiry ({sec_left:.1f}s left)")
                     continue 
 
+                if trade['strategy'] == "1-Min Mom":
+                    time_held = time.time() - trade.get('entry_time_ts', time.time())
+                    last_bid = trade.get('last_bid_price', 0.0)
+                    if current_bid < last_bid and current_bid > entry_p:
+                        trade['ticks_down'] = trade.get('ticks_down', 0) + 1
+                    elif current_bid > last_bid:
+                        trade['ticks_down'] = 0
+                    trade['last_bid_price'] = current_bid
+
+                    if time_held <= MOMENTUM_TP1_WINDOW and pnl_ratio >= 1.20:
+                        close_trade(trade, current_bid, "Momentum TP (+20% PNL)")
+                        continue
+
+                    if time_held >= MOMENTUM_TP1_WINDOW and current_bid > entry_p:
+                        close_trade(trade, current_bid, f"Momentum Profit Lock ({time_held:.1f}s)")
+                        continue
+
+                    if trade.get('ticks_down', 0) >= 1 and current_bid > entry_p and time_held >= 3.0:
+                        close_trade(trade, current_bid, "Momentum Reversal (1 Tick Down)")
+                        continue
+
+                    if time_held >= MOMENTUM_MAX_HOLD:
+                        close_trade(trade, current_bid, f"Momentum Max Hold ({MOMENTUM_MAX_HOLD:.0f}s)")
+                        continue
+
+                    if pnl_ratio <= MOMENTUM_SL_DROP:
+                        close_trade(trade, current_bid, "Momentum Early Stop (-5% PNL)")
+                        continue
+
                 # Kinetic Sniper Protection
                 if trade['strategy'] == "Kinetic Sniper":
                     time_held = time.time() - trade.get('entry_time_ts', time.time())
@@ -1804,16 +1929,13 @@ async def evaluate_strategies(trigger_source, pair_filter=None):
 
                     if (
                         KINETIC_SNIPER_TP1_WINDOW < time_held <= KINETIC_SNIPER_TP2_WINDOW
-                        and pnl_ratio >= 1.30
-                    ):
-                        close_trade(trade, current_bid, "Kinetic TP Ladder (+30% PNL by 20s)")
-                        continue
-
-                    if (
-                        KINETIC_SNIPER_TP2_WINDOW < time_held <= KINETIC_SNIPER_TP3_WINDOW
                         and current_bid > entry_p
                     ):
-                        close_trade(trade, current_bid, f"Kinetic Profit Sweep ({time_held:.1f}s)")
+                        close_trade(trade, current_bid, f"Kinetic Profit Lock ({time_held:.1f}s)")
+                        continue
+
+                    if time_held >= KINETIC_SNIPER_MAX_HOLD:
+                        close_trade(trade, current_bid, f"Kinetic Max Hold ({KINETIC_SNIPER_MAX_HOLD:.0f}s)")
                         continue
                         
                     last_bid = trade.get('last_bid_price', 0.0)
@@ -1824,77 +1946,185 @@ async def evaluate_strategies(trigger_source, pair_filter=None):
                         
                     trade['last_bid_price'] = current_bid
                     
-                    if trade.get('ticks_down', 0) >= 2 and current_bid > entry_p:
-                        close_trade(trade, current_bid, "Momentum Reversal (2 Ticks Down)")
+                    if trade.get('ticks_down', 0) >= 1 and current_bid > entry_p and time_held >= 3.0:
+                        close_trade(trade, current_bid, "Kinetic Reversal (1 Tick Down)")
                         continue
 
                     if current_bid <= entry_p * KINETIC_SNIPER_SL_DROP and 'sl_countdown' not in trade:
                         trade['sl_countdown'] = time.time()
-                        log(f"⚠️ [ID: {trade['short_id']:02d}] Kinetic -10% drop. 10s countdown started.")
+                        log(f"⚠️ [ID: {trade['short_id']:02d}] Kinetic -7% drop. 5s countdown started.")
                     
                     if 'sl_countdown' in trade and (time.time() - trade['sl_countdown'] >= KINETIC_SNIPER_TIMEOUT):
                         close_trade(trade, current_bid, f"Kinetic Timeout SL ({KINETIC_SNIPER_TIMEOUT}s)")
                         continue
+                    if current_bid > entry_p:
+                        trade.pop('sl_countdown', None)
 
             # =====================================================================
             # SIGNAL GENERATION
             # =====================================================================        
-            if is_base_fetched:
-                
-                m_cfg = config.get('mid_arb', {}) if is_strategy_enabled(config, 'mid_arb') else {}
+            m_cfg = config.get('mid_arb', {}) if is_strategy_enabled(config, 'mid_arb') else {}
+            if m_cfg:
                 mid_arb_flag = f"mid_arb_{m_id}"
-                if not is_paused and m_cfg and is_clean and m_cfg.get('win_end', 0) < sec_left < m_cfg.get('win_start', 0) and mid_arb_flag not in EXECUTED_STRAT[m_id]:
-                    if adj_delta > m_cfg.get('delta', 0) and 0 < b_up <= m_cfg.get('max_p', 0):
-                        execute_trade(m_id, timeframe, "Mid-Game Arb", "UP", 1.0, b_up, symbol, m_cfg.get('wr', 50.0), m_cfg.get('id', ''))
-                        EXECUTED_STRAT[m_id].append(mid_arb_flag)
-                    elif adj_delta < -m_cfg.get('delta', 0) and 0 < b_dn <= m_cfg.get('max_p', 0):
-                        execute_trade(m_id, timeframe, "Mid-Game Arb", "DOWN", 1.0, b_dn, symbol, m_cfg.get('wr', 50.0), m_cfg.get('id', ''))
-                        EXECUTED_STRAT[m_id].append(mid_arb_flag)
-                        
-                otm_cfg = config.get('otm', {}) if is_strategy_enabled(config, 'otm') else {}
+                if not is_base_fetched:
+                    note_skip('mid_arb', 'base_not_fetched')
+                elif is_paused:
+                    note_skip('mid_arb', 'market_paused', timeframe_key)
+                elif not is_clean:
+                    note_skip('mid_arb', 'market_not_clean')
+                elif mid_arb_flag in EXECUTED_STRAT[m_id]:
+                    note_skip('mid_arb', 'already_executed')
+                elif not (m_cfg.get('win_end', 0) < sec_left < m_cfg.get('win_start', 0)):
+                    note_skip('mid_arb', 'window_miss', f"sec_left={sec_left:.1f}")
+                elif adj_delta > m_cfg.get('delta', 0):
+                    if 0 < b_up <= m_cfg.get('max_p', 0):
+                        executed, failure_reason = execute_trade(
+                            m_id, timeframe, "Mid-Game Arb", "UP", 1.0, b_up, symbol, m_cfg.get('wr', 50.0), m_cfg.get('id', '')
+                        )
+                        if executed:
+                            EXECUTED_STRAT[m_id].append(mid_arb_flag)
+                        else:
+                            note_skip('mid_arb', f"execute_trade_{failure_reason}", f"direction=UP,bid={b_up:.4f}")
+                    else:
+                        note_skip('mid_arb', 'price_filter_blocked', f"direction=UP,bid={b_up:.4f},max_p={m_cfg.get('max_p', 0):.4f}")
+                elif adj_delta < -m_cfg.get('delta', 0):
+                    if 0 < b_dn <= m_cfg.get('max_p', 0):
+                        executed, failure_reason = execute_trade(
+                            m_id, timeframe, "Mid-Game Arb", "DOWN", 1.0, b_dn, symbol, m_cfg.get('wr', 50.0), m_cfg.get('id', '')
+                        )
+                        if executed:
+                            EXECUTED_STRAT[m_id].append(mid_arb_flag)
+                        else:
+                            note_skip('mid_arb', f"execute_trade_{failure_reason}", f"direction=DOWN,bid={b_dn:.4f}")
+                    else:
+                        note_skip('mid_arb', 'price_filter_blocked', f"direction=DOWN,bid={b_dn:.4f},max_p={m_cfg.get('max_p', 0):.4f}")
+                else:
+                    note_skip('mid_arb', 'delta_not_met', f"delta={adj_delta:.4f},limit={m_cfg.get('delta', 0):.4f}")
+
+            otm_cfg = config.get('otm', {}) if is_strategy_enabled(config, 'otm') else {}
+            if otm_cfg and otm_cfg.get('wr', 0.0) > 0.0:
                 otm_flag = f"otm_{m_id}"
-                if not is_paused and otm_cfg and otm_cfg.get('wr', 0.0) > 0.0 and otm_cfg.get('win_end', 0) <= sec_left <= otm_cfg.get('win_start', 0) and otm_flag not in EXECUTED_STRAT[m_id]:
-                    if abs(adj_delta) < 40.0:
-                        if 0 < b_up <= otm_cfg.get('max_p', 0):
-                            execute_trade(m_id, timeframe, "OTM Bargain", "UP", 1.0, b_up, symbol, otm_cfg.get('wr', 50.0), otm_cfg.get('id', ''))
-                            EXECUTED_STRAT[m_id].append(otm_flag)
-                        elif 0 < b_dn <= otm_cfg.get('max_p', 0):
-                            execute_trade(m_id, timeframe, "OTM Bargain", "DOWN", 1.0, b_dn, symbol, otm_cfg.get('wr', 50.0), otm_cfg.get('id', ''))
-                            EXECUTED_STRAT[m_id].append(otm_flag)
-                            
-                mom_cfg = config.get('momentum', {}) if is_strategy_enabled(config, 'momentum') else {}
-                if not is_paused and mom_cfg and is_clean and mom_cfg.get('win_end', 0) <= sec_left <= mom_cfg.get('win_start', 0) and 'momentum' not in EXECUTED_STRAT[m_id]:
-                    if adj_delta >= mom_cfg.get('delta', 0) and 0 < b_up <= mom_cfg.get('max_p', 0):
-                        execute_trade(m_id, timeframe, "1-Min Mom", "UP", 1.0, b_up, symbol, mom_cfg.get('wr', 50.0), mom_cfg.get('id', ''))
-                        EXECUTED_STRAT[m_id].append('momentum')
-                    elif adj_delta <= -mom_cfg.get('delta', 0) and 0 < b_dn <= mom_cfg.get('max_p', 0):
-                        execute_trade(m_id, timeframe, "1-Min Mom", "DOWN", 1.0, b_dn, symbol, mom_cfg.get('wr', 50.0), mom_cfg.get('id', ''))
-                        EXECUTED_STRAT[m_id].append('momentum')
-                        
-            if trigger_source == "BINANCE_TICK" and is_base_fetched and is_clean:
-                up_change = b_up - m_data['prev_up']
-                dn_change = b_dn - m_data['prev_dn']
-                
-                kin_cfg = config.get('kinetic_sniper', {}) if is_strategy_enabled(config, 'kinetic_sniper') else {}
-                if not is_paused and kin_cfg:
+                if not is_base_fetched:
+                    note_skip('otm', 'base_not_fetched')
+                elif is_paused:
+                    note_skip('otm', 'market_paused', timeframe_key)
+                elif otm_flag in EXECUTED_STRAT[m_id]:
+                    note_skip('otm', 'already_executed')
+                elif not (otm_cfg.get('win_end', 0) <= sec_left <= otm_cfg.get('win_start', 0)):
+                    note_skip('otm', 'window_miss', f"sec_left={sec_left:.1f}")
+                elif abs(adj_delta) >= 40.0:
+                    note_skip('otm', 'delta_abs_too_large', f"delta={adj_delta:.4f}")
+                elif 0 < b_up <= otm_cfg.get('max_p', 0):
+                    executed, failure_reason = execute_trade(
+                        m_id, timeframe, "OTM Bargain", "UP", 1.0, b_up, symbol, otm_cfg.get('wr', 50.0), otm_cfg.get('id', '')
+                    )
+                    if executed:
+                        EXECUTED_STRAT[m_id].append(otm_flag)
+                    else:
+                        note_skip('otm', f"execute_trade_{failure_reason}", f"direction=UP,bid={b_up:.4f}")
+                elif 0 < b_dn <= otm_cfg.get('max_p', 0):
+                    executed, failure_reason = execute_trade(
+                        m_id, timeframe, "OTM Bargain", "DOWN", 1.0, b_dn, symbol, otm_cfg.get('wr', 50.0), otm_cfg.get('id', '')
+                    )
+                    if executed:
+                        EXECUTED_STRAT[m_id].append(otm_flag)
+                    else:
+                        note_skip('otm', f"execute_trade_{failure_reason}", f"direction=DOWN,bid={b_dn:.4f}")
+                else:
+                    note_skip('otm', 'price_filter_blocked', f"up={b_up:.4f},down={b_dn:.4f},max_p={otm_cfg.get('max_p', 0):.4f}")
+
+            mom_cfg = config.get('momentum', {}) if is_strategy_enabled(config, 'momentum') else {}
+            if mom_cfg:
+                if not is_base_fetched:
+                    note_skip('momentum', 'base_not_fetched')
+                elif is_paused:
+                    note_skip('momentum', 'market_paused', timeframe_key)
+                elif not is_clean:
+                    note_skip('momentum', 'market_not_clean')
+                elif 'momentum' in EXECUTED_STRAT[m_id]:
+                    note_skip('momentum', 'already_executed')
+                elif not (mom_cfg.get('win_end', 0) <= sec_left <= mom_cfg.get('win_start', 0)):
+                    note_skip('momentum', 'window_miss', f"sec_left={sec_left:.1f}")
+                elif adj_delta >= mom_cfg.get('delta', 0):
+                    if 0 < b_up <= mom_cfg.get('max_p', 0):
+                        executed, failure_reason = execute_trade(
+                            m_id, timeframe, "1-Min Mom", "UP", 1.0, b_up, symbol, mom_cfg.get('wr', 50.0), mom_cfg.get('id', '')
+                        )
+                        if executed:
+                            EXECUTED_STRAT[m_id].append('momentum')
+                        else:
+                            note_skip('momentum', f"execute_trade_{failure_reason}", f"direction=UP,bid={b_up:.4f}")
+                    else:
+                        note_skip('momentum', 'price_filter_blocked', f"direction=UP,bid={b_up:.4f},max_p={mom_cfg.get('max_p', 0):.4f}")
+                elif adj_delta <= -mom_cfg.get('delta', 0):
+                    if 0 < b_dn <= mom_cfg.get('max_p', 0):
+                        executed, failure_reason = execute_trade(
+                            m_id, timeframe, "1-Min Mom", "DOWN", 1.0, b_dn, symbol, mom_cfg.get('wr', 50.0), mom_cfg.get('id', '')
+                        )
+                        if executed:
+                            EXECUTED_STRAT[m_id].append('momentum')
+                        else:
+                            note_skip('momentum', f"execute_trade_{failure_reason}", f"direction=DOWN,bid={b_dn:.4f}")
+                    else:
+                        note_skip('momentum', 'price_filter_blocked', f"direction=DOWN,bid={b_dn:.4f},max_p={mom_cfg.get('max_p', 0):.4f}")
+                else:
+                    note_skip('momentum', 'delta_not_met', f"delta={adj_delta:.4f},limit={mom_cfg.get('delta', 0):.4f}")
+
+            kin_cfg = config.get('kinetic_sniper', {}) if is_strategy_enabled(config, 'kinetic_sniper') else {}
+            if kin_cfg:
+                if not is_base_fetched:
+                    note_skip('kinetic_sniper', 'base_not_fetched')
+                elif trigger_source != "BINANCE_TICK":
+                    note_skip('kinetic_sniper', 'trigger_source_mismatch', trigger_source)
+                elif is_paused:
+                    note_skip('kinetic_sniper', 'market_paused', timeframe_key)
+                elif not is_clean:
+                    note_skip('kinetic_sniper', 'market_not_clean')
+                else:
+                    up_change = b_up - m_data['prev_up']
+                    dn_change = b_dn - m_data['prev_dn']
                     max_target_dist = kin_cfg.get('max_target_dist', float('inf'))
-                    
-                    if abs(adj_delta) <= max_target_dist:
+                    if abs(adj_delta) > max_target_dist:
+                        note_skip('kinetic_sniper', 'target_distance_too_far', f"delta={adj_delta:.4f},max_target_dist={max_target_dist:.4f}")
+                    else:
                         trigger_pct = kin_cfg.get('trigger_pct', 0.0)
                         max_price = kin_cfg.get('max_price', 0.85)
                         max_slippage = kin_cfg.get('max_slippage', 0.025)
-                        
                         history = LOCAL_STATE['price_history'].get(pair, deque())
-                        if len(history) >= 2:
+                        if len(history) < 2:
+                            note_skip('kinetic_sniper', 'insufficient_price_history', f"history_len={len(history)}")
+                        else:
                             oldest_price = history[0][1]
-                            if oldest_price > 0:
+                            if oldest_price <= 0:
+                                note_skip('kinetic_sniper', 'invalid_reference_price')
+                            else:
                                 price_delta_pct = (live_p - oldest_price) / oldest_price
-                                
-                                if price_delta_pct >= trigger_pct and abs(up_change) <= max_slippage and 0 < b_up <= max_price:
-                                    execute_trade(m_id, timeframe, "Kinetic Sniper", "UP", 1.0, b_up, symbol, kin_cfg.get('wr', 50.0), kin_cfg.get('id', ''))
-                                elif price_delta_pct <= -trigger_pct and abs(dn_change) <= max_slippage and 0 < b_dn <= max_price:
-                                    execute_trade(m_id, timeframe, "Kinetic Sniper", "DOWN", 1.0, b_dn, symbol, kin_cfg.get('wr', 50.0), kin_cfg.get('id', ''))
-                                
+                                if price_delta_pct >= trigger_pct:
+                                    if abs(up_change) > max_slippage:
+                                        note_skip('kinetic_sniper', 'slippage_blocked', f"direction=UP,change={abs(up_change):.4f},max={max_slippage:.4f}")
+                                    elif not (0 < b_up <= max_price):
+                                        note_skip('kinetic_sniper', 'price_filter_blocked', f"direction=UP,bid={b_up:.4f},max_price={max_price:.4f}")
+                                    else:
+                                        executed, failure_reason = execute_trade(
+                                            m_id, timeframe, "Kinetic Sniper", "UP", 1.0, b_up, symbol, kin_cfg.get('wr', 50.0), kin_cfg.get('id', '')
+                                        )
+                                        if not executed:
+                                            note_skip('kinetic_sniper', f"execute_trade_{failure_reason}", f"direction=UP,bid={b_up:.4f}")
+                                elif price_delta_pct <= -trigger_pct:
+                                    if abs(dn_change) > max_slippage:
+                                        note_skip('kinetic_sniper', 'slippage_blocked', f"direction=DOWN,change={abs(dn_change):.4f},max={max_slippage:.4f}")
+                                    elif not (0 < b_dn <= max_price):
+                                        note_skip('kinetic_sniper', 'price_filter_blocked', f"direction=DOWN,bid={b_dn:.4f},max_price={max_price:.4f}")
+                                    else:
+                                        executed, failure_reason = execute_trade(
+                                            m_id, timeframe, "Kinetic Sniper", "DOWN", 1.0, b_dn, symbol, kin_cfg.get('wr', 50.0), kin_cfg.get('id', '')
+                                        )
+                                        if not executed:
+                                            note_skip('kinetic_sniper', f"execute_trade_{failure_reason}", f"direction=DOWN,bid={b_dn:.4f}")
+                                else:
+                                    note_skip('kinetic_sniper', 'price_jump_not_met', f"jump={price_delta_pct:.6f},trigger={trigger_pct:.6f}")
+
+            if trigger_source == "BINANCE_TICK" and is_base_fetched:
                 m_data['prev_up'], m_data['prev_dn'] = b_up, b_dn
     except Exception as e:
         log_error("Strategy Engine", e)
