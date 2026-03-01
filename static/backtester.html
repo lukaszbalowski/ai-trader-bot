@@ -327,6 +327,53 @@
       gap: 14px;
     }
 
+    .cpu-panel {
+      display: grid;
+      gap: 12px;
+    }
+
+    .cpu-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(86px, 1fr));
+      gap: 10px;
+    }
+
+    .core-card {
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 12px 10px;
+      background: rgba(255, 255, 255, 0.03);
+      text-align: center;
+    }
+
+    .core-label {
+      color: var(--muted);
+      font-size: 11px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+
+    .core-value {
+      font-family: var(--font-display);
+      font-size: 22px;
+    }
+
+    .core-meter {
+      height: 8px;
+      border-radius: 999px;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      background: rgba(255,255,255,0.04);
+      margin-top: 10px;
+    }
+
+    .core-meter-fill {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, rgba(92, 200, 161, 0.85), rgba(255, 188, 92, 0.95), rgba(255, 111, 111, 0.95));
+    }
+
     .progress-head {
       display: flex;
       justify-content: space-between;
@@ -496,6 +543,15 @@
               </div>
               <div class="progress-track"><div class="progress-fill" id="totalProgressFill"></div></div>
               <div class="progress-meta" id="totalProgressMeta"></div>
+            </div>
+
+            <div class="progress-card cpu-panel">
+              <div class="progress-head">
+                <div class="progress-label">Obciążenie procesora</div>
+                <div class="muted" id="cpuOverall">--</div>
+              </div>
+              <div class="progress-meta" id="cpuMeta"></div>
+              <div class="cpu-grid" id="cpuGrid"></div>
             </div>
           </div>
         </section>
@@ -846,6 +902,7 @@
 
     function renderProgress() {
       const progress = appState.status?.progress || {};
+      const cpu = appState.status?.cpu || {};
       const currentPct = Number(progress.current_test_progress_pct || 0);
       const totalPct = Number(progress.total_progress_pct || 0);
       document.getElementById("currentProgressFill").style.width = `${currentPct}%`;
@@ -868,6 +925,39 @@
         <span>Pozostało: ${progress.eta_label || "--"}</span>
         <span>Szybkość: ${number(progress.operations_per_sec || 0)}/s</span>
       `;
+      renderCpu(cpu);
+    }
+
+    function renderCpu(cpu) {
+      const overall = document.getElementById("cpuOverall");
+      const meta = document.getElementById("cpuMeta");
+      const grid = document.getElementById("cpuGrid");
+      overall.textContent = cpu.available
+        ? `Średnio ${Number(cpu.overall_percent || 0).toFixed(1)}%`
+        : "Brak danych";
+      meta.innerHTML = `
+        <span>Rdzeni logicznych: ${number(cpu.logical_cores || 0)}</span>
+        <span>Źródło: ${cpu.source || "--"}</span>
+        <span>${cpu.note || "Aktualizacja przy każdym odświeżeniu statusu."}</span>
+      `;
+      const values = Array.isArray(cpu.per_core_percent) ? cpu.per_core_percent : [];
+      if (!values.length) {
+        grid.innerHTML = '<div class="empty">Metryki CPU chwilowo niedostępne.</div>';
+        return;
+      }
+      grid.innerHTML = values.map((value, index) => {
+        const numeric = typeof value === "number";
+        const pctValue = numeric ? Math.max(0, Math.min(100, value)) : 0;
+        return `
+          <div class="core-card">
+            <div class="core-label">Core ${index + 1}</div>
+            <div class="core-value ${numeric ? '' : 'warning'}">${numeric ? `${pctValue.toFixed(0)}%` : '--'}</div>
+            <div class="core-meter">
+              <div class="core-meter-fill" style="width:${pctValue}%"></div>
+            </div>
+          </div>
+        `;
+      }).join("");
     }
 
     function renderLastRun() {

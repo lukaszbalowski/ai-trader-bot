@@ -6,6 +6,8 @@ import subprocess
 import sys
 from datetime import datetime
 import json
+import re
+from pathlib import Path
 
 from backtester_runtime import (
     RUNTIME_DIR,
@@ -77,7 +79,97 @@ class BacktesterService:
         return catalog
 
     def get_status(self) -> dict:
-        return self._state()
+        state = self._state()
+        state["cpu"] = self._cpu_snapshot()
+        return state
+
+    def _cpu_snapshot(self) -> dict:
+        per_core = self._sample_linux_proc_stat()
+        source = "proc_stat"
+        available = True
+        note = ""
+        if per_core is None:
+            per_core = self._sample_macos_top()
+            source = "top"
+        if per_core is None:
+            per_core = [None] * (os.cpu_count() or 1)
+            available = False
+            source = "unavailable"
+            note = "Brak dostępu do metryk per rdzeń w aktualnym środowisku."
+
+        numeric_values = [value for value in per_core if isinstance(value, (int, float))]
+        overall = round(sum(numeric_values) / len(numeric_values), 1) if numeric_values else None
+        return {
+            "available": available,
+            "source": source,
+            "overall_percent": overall,
+            "logical_cores": len(per_core),
+            "per_core_percent": per_core,
+            "note": note,
+        }
+
+    def _sample_linux_proc_stat(self) -> list[float] | None:
+        stat_path = Path("/proc/stat")
+        if not stat_path.exists():
+            return None
+        try:
+            first = self._read_proc_stat()
+            if not first:
+                return None
+            import time
+            time.sleep(0.15)
+            second = self._read_proc_stat()
+            if not second or len(first) != len(second):
+                return None
+            loads = []
+            for previous, current in zip(first, second):
+                prev_total = sum(previous)
+                curr_total = sum(current)
+                total_delta = curr_total - prev_total
+                idle_delta = current[3] - previous[3]
+                if total_delta <= 0:
+                    loads.append(0.0)
+                else:
+                    loads.append(round(max(0.0, min(100.0, (1.0 - (idle_delta / total_delta)) * 100.0)), 1))
+            return loads
+        except Exception:
+            return None
+
+    def _read_proc_stat(self) -> list[tuple[int, ...]] | None:
+        stat_path = Path("/proc/stat")
+        rows = []
+        for line in stat_path.read_text(encoding="utf-8").splitlines():
+            if not re.match(r"^cpu\d+\s", line):
+                continue
+            parts = line.split()
+            rows.append(tuple(int(part) for part in parts[1:8]))
+        return rows or None
+
+    def _sample_macos_top(self) -> list[float | None] | None:
+        try:
+            result = subprocess.run(
+                ["/usr/bin/top", "-l", "1", "-stats", "cpu"],
+                capture_output=True,
+                text=True,
+                timeout=2,
+            )
+        except Exception:
+            return None
+        if result.returncode != 0 or not result.stdout:
+            return None
+
+        pattern = re.compile(r"CPU\s*(\d+):\s*([\d.]+)%\s*user,\s*([\d.]+)%\s*sys,\s*([\d.]+)%\s*idle", re.IGNORECASE)
+        matches = pattern.findall(result.stdout)
+        if not matches:
+            return None
+
+        indexed = {}
+        for index, user_pct, sys_pct, idle_pct in matches:
+            active = max(0.0, min(100.0, float(user_pct) + float(sys_pct)))
+            indexed[int(index)] = round(active, 1)
+        if not indexed:
+            return None
+        return [indexed.get(i) for i in range(max(indexed.keys()) + 1)]
 
     def start(self, payload: dict | None = None) -> dict:
         state = self._state()
