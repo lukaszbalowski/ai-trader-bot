@@ -56,6 +56,9 @@ PROFIT_SECURE_SEC = 3.0
 TAKE_PROFIT_MULTIPLIER = 3.0   
 KINETIC_SNIPER_SL_DROP = 0.90  
 KINETIC_SNIPER_TIMEOUT = 10.0  
+KINETIC_SNIPER_TP1_WINDOW = 10.0
+KINETIC_SNIPER_TP2_WINDOW = 20.0
+KINETIC_SNIPER_TP3_WINDOW = 30.0
 LOSS_RECOVERY_TIMEOUT = 10.0
 POSITION_DUST_SHARES = 0.001
 MIN_MARKET_SELL_SHARES = 0.01
@@ -1766,6 +1769,10 @@ async def evaluate_strategies(trigger_source, pair_filter=None):
                 
                 pnl_ratio = current_bid / entry_p if entry_p > 0 else 0
 
+                if pnl_ratio <= 0.50 and trade['strategy'] != "OTM Bargain":
+                    close_trade(trade, current_bid, "Hard Stop Loss (-50% PNL)")
+                    continue
+
                 if current_bid < entry_p:
                     if 'loss_countdown' not in trade:
                         trade['loss_countdown'] = time.time()
@@ -1789,13 +1796,24 @@ async def evaluate_strategies(trigger_source, pair_filter=None):
 
                 # Kinetic Sniper Protection
                 if trade['strategy'] == "Kinetic Sniper":
-                    if pnl_ratio >= 1.50:
+                    time_held = time.time() - trade.get('entry_time_ts', time.time())
+
+                    if time_held <= KINETIC_SNIPER_TP1_WINDOW and pnl_ratio >= 1.50:
                         close_trade(trade, current_bid, "Kinetic TP (+50% PNL)")
                         continue
-                        
-                    time_held = time.time() - trade.get('entry_time_ts', time.time())
-                    if time_held >= 10.0 and current_bid > entry_p:
-                        close_trade(trade, current_bid, f"Time-Decay Escape ({time_held:.1f}s)")
+
+                    if (
+                        KINETIC_SNIPER_TP1_WINDOW < time_held <= KINETIC_SNIPER_TP2_WINDOW
+                        and pnl_ratio >= 1.30
+                    ):
+                        close_trade(trade, current_bid, "Kinetic TP Ladder (+30% PNL by 20s)")
+                        continue
+
+                    if (
+                        KINETIC_SNIPER_TP2_WINDOW < time_held <= KINETIC_SNIPER_TP3_WINDOW
+                        and current_bid > entry_p
+                    ):
+                        close_trade(trade, current_bid, f"Kinetic Profit Sweep ({time_held:.1f}s)")
                         continue
                         
                     last_bid = trade.get('last_bid_price', 0.0)
