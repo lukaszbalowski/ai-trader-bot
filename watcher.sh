@@ -64,6 +64,15 @@ case "$COMMAND" in
         --env-file .env \
         ai-trader python main.py --mode observe_only --portfolio $PORTFOLIO
     ;;
+
+  backtester-dashboard)
+    echo "🖥️ Starting standalone Backtester Dashboard on port ${DASHBOARD_PORT}..."
+    docker run --rm -it \
+      -p "${DASHBOARD_PORT}:8000" \
+      -v "$(pwd)/data:/app/data" \
+      -v "$(pwd):/app" \
+      ai-trader python backtester_dashboard.py
+    ;;
     
   backtest)
     echo "📊 Starting Backtester (Level 2 Analysis + Post Mortem) for the LATEST session..."
@@ -118,6 +127,7 @@ case "$COMMAND" in
     echo "  paper [amount]   - Starts the PAPER TRADING Bot (e.g., ./watcher.sh paper 500)"
     echo "  live             - Starts the LIVE TRADING Bot (uses real wallet balance)"
     echo "  observe [amount] - Starts the bot in observe-only mode with all markets paused"
+    echo "  backtester-dashboard - Starts standalone Backtester Dashboard without Watcher session reset"
     echo "  backtest         - Runs grid simulation and updates strategies from the latest session"
     echo "  backtest quick   - Runs accelerated Monte Carlo sampling on the latest session"
     echo "  backtest 5       - Runs backtester only for 5-minute markets"

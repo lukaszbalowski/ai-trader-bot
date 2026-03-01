@@ -340,9 +340,9 @@ def run_post_mortem_analysis(db_path="data/polymarket.db", all_history=False):
 # ==========================================
 # 1. LEVEL 2 DATA PREPARATION
 # ==========================================
-def load_and_prepare_data(db_path="data/polymarket.db", all_history=False):
+def load_and_prepare_data(db_path="data/polymarket.db", all_history=False, session_id=None):
     if not os.path.exists(db_path): return pd.DataFrame()
-    latest_session = get_latest_session_id(db_path) if not all_history else None
+    latest_session = session_id or (get_latest_session_id(db_path) if not all_history else None)
     conn = sqlite3.connect(db_path)
     try:
         if latest_session:

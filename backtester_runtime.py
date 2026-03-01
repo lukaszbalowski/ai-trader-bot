@@ -89,6 +89,44 @@ def normalize_scope(value: str | None) -> str:
     return "latest_session"
 
 
+def list_recent_sessions(limit: int = 24) -> list[dict]:
+    if not DB_PATH.exists():
+        return []
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = conn.execute(
+            """
+            SELECT
+                session_id,
+                MIN(fetched_at) AS started_at,
+                MAX(fetched_at) AS finished_at,
+                COUNT(*) AS ticks_count,
+                COUNT(DISTINCT timeframe) AS market_count
+            FROM market_logs_v11
+            WHERE session_id IS NOT NULL AND session_id != '' AND (buy_up > 0 OR buy_down > 0)
+            GROUP BY session_id
+            ORDER BY MAX(fetched_at) DESC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+    finally:
+        conn.close()
+
+    return [
+        {
+            "session_id": row["session_id"],
+            "started_at": row["started_at"],
+            "finished_at": row["finished_at"],
+            "ticks_count": int(row["ticks_count"] or 0),
+            "market_count": int(row["market_count"] or 0),
+            "label": f"{row['session_id']} · {str(row['finished_at']).replace('T', ' ').replace('Z', '')}",
+        }
+        for row in rows
+    ]
+
+
 def normalize_mode(value: str | None) -> str:
     if value == "quick":
         return "quick"
@@ -698,7 +736,7 @@ def build_sampling_plan(
     }
 
 
-def load_available_markets(scope: str) -> dict:
+def load_available_markets(scope: str, session_id: str | None = None) -> dict:
     scope = normalize_scope(scope)
     if not DB_PATH.exists():
         return {
@@ -706,12 +744,14 @@ def load_available_markets(scope: str) -> dict:
             "session_id": None,
             "markets": [],
             "market_map": {},
+            "available_sessions": [],
         }
 
+    available_sessions = list_recent_sessions()
     conn = sqlite3.connect(DB_PATH)
     try:
-        latest_session_id = get_latest_session_id(DB_PATH) if scope == "latest_session" else None
-        if latest_session_id:
+        effective_session_id = (session_id or "").strip() or (get_latest_session_id(DB_PATH) if scope == "latest_session" else None)
+        if effective_session_id:
             rows = conn.execute(
                 """
                 SELECT timeframe, COUNT(*) AS ticks_count, COUNT(DISTINCT market_id) AS market_instances
@@ -719,7 +759,7 @@ def load_available_markets(scope: str) -> dict:
                 WHERE session_id = ? AND (buy_up > 0 OR buy_down > 0)
                 GROUP BY timeframe
                 """,
-                (latest_session_id,),
+                (effective_session_id,),
             ).fetchall()
         else:
             rows = conn.execute(
@@ -753,9 +793,10 @@ def load_available_markets(scope: str) -> dict:
     markets.sort(key=lambda item: market_sort_key(item["market_key"]))
     return {
         "scope": scope,
-        "session_id": latest_session_id if scope == "latest_session" else None,
+        "session_id": effective_session_id if scope == "latest_session" else None,
         "markets": markets,
         "market_map": market_map,
+        "available_sessions": available_sessions,
     }
 
 
@@ -763,6 +804,7 @@ def build_catalog(
     scope: str = "latest_session",
     mode: str = "full",
     adaptive: bool = False,
+    session_id: str | None = None,
     selected_markets: list[str] | None = None,
     selected_strategies: list[str] | None = None,
     manual_samples: dict[str, int] | None = None,
@@ -770,7 +812,7 @@ def build_catalog(
     scope = normalize_scope(scope)
     mode = normalize_mode(mode)
     adaptive = normalize_adaptive(adaptive) and mode != "fast-track"
-    availability = load_available_markets(scope)
+    availability = load_available_markets(scope, session_id=session_id)
     market_map = availability["market_map"]
     markets = availability["markets"]
 
@@ -839,6 +881,7 @@ def build_catalog(
         "adaptive": adaptive,
         "mode_label": format_mode_label(mode, adaptive),
         "session_id": availability["session_id"],
+        "available_sessions": availability["available_sessions"],
         "available_markets": markets,
         "available_strategies": [
             {
@@ -1325,11 +1368,13 @@ def build_runtime_plan(job: dict) -> tuple[dict, dict]:
     selected_markets = job.get("selected_markets") or []
     selected_strategies = job.get("selected_strategies") or list(STRATEGY_SPECS.keys())
     manual_samples = job.get("manual_samples") or {}
+    session_id = (job.get("session_id") or "").strip() or None
 
     catalog = build_catalog(
         scope=scope,
         mode=mode,
         adaptive=adaptive,
+        session_id=session_id,
         selected_markets=selected_markets,
         selected_strategies=selected_strategies,
         manual_samples=manual_samples,
@@ -1353,7 +1398,7 @@ def build_runtime_plan(job: dict) -> tuple[dict, dict]:
         }
         return plan, {"entries": []}
 
-    historical_data = load_and_prepare_data(all_history=(scope == "all"))
+    historical_data = load_and_prepare_data(all_history=(scope == "all"), session_id=catalog["session_id"])
     if historical_data.empty:
         raise RuntimeError("Nie znaleziono danych historycznych do backtestu.")
 
@@ -1840,6 +1885,7 @@ def build_job_payload(payload: dict | None = None) -> dict:
         "scope": normalize_scope(payload.get("scope")),
         "mode": normalize_mode(payload.get("mode")),
         "adaptive": normalize_adaptive(payload.get("adaptive")),
+        "session_id": payload.get("session_id"),
         "selected_markets": payload.get("selected_markets") or [],
         "selected_strategies": payload.get("selected_strategies") or list(STRATEGY_SPECS.keys()),
         "manual_samples": payload.get("manual_samples") or {},

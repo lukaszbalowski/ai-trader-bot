@@ -631,6 +631,10 @@
               <div class="metric-label">Plan testów</div>
               <div class="pill-row" id="planMeta"></div>
             </div>
+            <div class="metric-card">
+              <div class="metric-label">Sesja do backtestu</div>
+              <div id="sessionSelector"></div>
+            </div>
           </div>
         </section>
 
@@ -715,6 +719,7 @@
       scope: "latest_session",
       mode: "full",
       adaptive: false,
+      selectedSessionId: "",
       selectedMarkets: [],
       selectedStrategies: [],
       manualSamples: {},
@@ -1019,6 +1024,7 @@
       params.set("scope", appState.scope);
       params.set("mode", appState.mode);
       params.set("adaptive", String(appState.adaptive));
+      params.set("session_id", appState.selectedSessionId || "");
       params.set("markets", appState.selectedMarkets.join(","));
       params.set("strategies", appState.selectedStrategies.join(","));
       params.set("manual_samples", JSON.stringify(appState.manualSamples));
@@ -1029,6 +1035,7 @@
       const payload = await fetchJson(`/api/backtester/catalog?${buildQuery()}`);
       appState.catalog = payload;
       appState.adaptive = Boolean(payload.adaptive);
+      appState.selectedSessionId = payload.session_id || appState.selectedSessionId || "";
       appState.status = payload.status;
       renderCatalog();
       renderStatus();
@@ -1049,6 +1056,7 @@
             scope: appState.scope,
             mode: appState.mode,
             adaptive: appState.adaptive,
+            session_id: appState.selectedSessionId || appState.catalog?.session_id || "",
             selected_markets: appState.selectedMarkets,
             selected_strategies: appState.selectedStrategies,
             manual_samples: appState.manualSamples,
@@ -1137,6 +1145,35 @@
       `;
       root.querySelector("#adaptiveInput")?.addEventListener("change", async (event) => {
         appState.adaptive = Boolean(event.target.checked);
+        await refreshCatalog();
+      });
+    }
+
+    function renderSessionSelector() {
+      const root = document.getElementById("sessionSelector");
+      const sessions = appState.catalog?.available_sessions || [];
+      if (appState.scope === "all") {
+        root.innerHTML = '<div class="option-sub">Tryb pełnej historii nie używa pojedynczej sesji.</div>';
+        return;
+      }
+      if (!sessions.length) {
+        root.innerHTML = '<div class="option-sub">Brak zapisanych sesji w bazie.</div>';
+        return;
+      }
+      const effectiveSession = appState.selectedSessionId || appState.catalog?.session_id || sessions[0]?.session_id || "";
+      root.innerHTML = `
+        <select id="sessionSelect" class="manual-input">
+          ${sessions.map((session) => `
+            <option value="${session.session_id}" ${effectiveSession === session.session_id ? "selected" : ""}>
+              ${escapeHtml(session.label)} · ticki ${number(session.ticks_count)} · rynki ${number(session.market_count)}
+            </option>
+          `).join("")}
+        </select>
+      `;
+      root.querySelector("#sessionSelect")?.addEventListener("change", async (event) => {
+        appState.selectedSessionId = event.target.value;
+        appState.selectedMarkets = [];
+        appState.detailsCache = {};
         await refreshCatalog();
       });
     }
@@ -1507,6 +1544,7 @@
       renderScopeControls();
       renderModeControls();
       renderAdaptiveControl();
+      renderSessionSelector();
       renderMarkets();
       renderStrategies();
       renderSummary();
@@ -1531,6 +1569,7 @@
       appState.catalog = initialCatalog;
       appState.status = initialCatalog.status;
       appState.adaptive = Boolean(initialCatalog.adaptive);
+      appState.selectedSessionId = initialCatalog.session_id || "";
       appState.selectedMarkets = initialCatalog.available_markets.map((item) => item.market_key);
       appState.selectedStrategies = initialCatalog.available_strategies.map((item) => item.strategy_key);
       await refreshCatalog();
