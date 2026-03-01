@@ -4,12 +4,26 @@
 
 COMMAND=$1
 ARG=$2
-QUICK_FLAG=""
+BACKTEST_ARGS=()
 DASHBOARD_PORT=${DASHBOARD_PORT:-8000}
 
-if [[ "$2" == "quick" || "$3" == "quick" ]]; then
-  QUICK_FLAG="--quick"
-fi
+shift || true
+
+for token in "$@"; do
+  case "$token" in
+    quick)
+      BACKTEST_ARGS+=("--quick")
+      ;;
+    full)
+      ;;
+    5|15|60|240)
+      BACKTEST_ARGS+=("--timeframe" "$token")
+      ;;
+    5m|15m|1h|4h)
+      BACKTEST_ARGS+=("--timeframe" "$token")
+      ;;
+  esac
+done
 
 # Create data directory if it doesn't exist to avoid mount errors
 mkdir -p data
@@ -51,12 +65,12 @@ case "$COMMAND" in
     
   backtest)
     echo "📊 Starting Backtester (Level 2 Analysis + Post Mortem) for the LATEST session..."
-    docker run --rm -it -v "$(pwd)/data:/app/data" ai-trader python backtester.py $QUICK_FLAG
+    docker run --rm -it -v "$(pwd)/data:/app/data" ai-trader python backtester.py "${BACKTEST_ARGS[@]}"
     ;;
     
   backtest-all)
     echo "📈 Starting Backtester on FULL historical database..."
-    docker run --rm -it -v "$(pwd)/data:/app/data" ai-trader python backtester.py --all-history $QUICK_FLAG
+    docker run --rm -it -v "$(pwd)/data:/app/data" ai-trader python backtester.py --all-history "${BACKTEST_ARGS[@]}"
     ;;
     
   fast-track)
@@ -88,8 +102,11 @@ case "$COMMAND" in
     echo "  observe [amount] - Starts the bot in observe-only mode with all markets paused"
     echo "  backtest         - Runs grid simulation and updates strategies from the latest session"
     echo "  backtest quick   - Runs accelerated Monte Carlo sampling on the latest session"
+    echo "  backtest 5       - Runs backtester only for 5-minute markets"
+    echo "  backtest quick 5 - Runs quick mode only for 5-minute markets"
     echo "  backtest-all     - Runs grid simulation on the ENTIRE historical database"
     echo "  backtest-all quick - Runs accelerated Monte Carlo sampling on the entire historical database"
+    echo "  backtest-all full 15 - Runs full scan only for 15-minute markets"
     echo "  fast-track       - Dumps best historical settings to tracked_configs.json"
     echo "  trades           - Exports all trades from the last 24h with orderbook snapshots to CSV"
     echo "  test-executor    - Runs the Clob API execution test"

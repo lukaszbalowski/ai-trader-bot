@@ -15,13 +15,23 @@ import builtins
 from datetime import datetime
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
-PARAM_JITTER_MIN_PCT = -0.85
-PARAM_JITTER_MAX_PCT = 0.85
+PARAM_JITTER_MIN_PCT = -0.50
+PARAM_JITTER_MAX_PCT = 0.50
 PARAM_JITTER_STEP_PCT = 0.05
 MONTE_CARLO_LIMIT = 1_000_000
 QUICK_MONTE_CARLO_LIMIT = 100_000
 TERMINAL_LOG_BUFFER = []
 QUICK_MODE = False
+TIMEFRAME_TOKEN_MAP = {
+    "5": "5m",
+    "5m": "5m",
+    "15": "15m",
+    "15m": "15m",
+    "60": "1h",
+    "1h": "1h",
+    "240": "4h",
+    "4h": "4h",
+}
 
 
 def print(*args, **kwargs):
@@ -38,6 +48,65 @@ def save_terminal_summary_txt():
         f.write("".join(TERMINAL_LOG_BUFFER))
     print(f"📝 Zapisano pełny log testu do {report_file}.")
     return report_file
+
+
+def normalize_timeframe_token(value):
+    if value is None:
+        return None
+    normalized = TIMEFRAME_TOKEN_MAP.get(str(value).strip().lower())
+    if normalized is None:
+        raise ValueError(
+            f"Nieobsługiwany interwał rynku: {value}. Dozwolone wartości: 5, 15, 60, 240."
+        )
+    return normalized
+
+
+def parse_cli_args():
+    parser = argparse.ArgumentParser(
+        description="Watcher v10.29 Alpha Vault Backtester (HYPER-DENSE + MONTE CARLO)"
+    )
+    parser.add_argument(
+        "--fast-track",
+        action="store_true",
+        help="Pomiń testowanie i zbuduj tracked_configs z najlepszych historycznych parametrów",
+    )
+    parser.add_argument(
+        "--all-history",
+        action="store_true",
+        help="Użyj pełnej bazy historycznej danych L2 z SQLite",
+    )
+    parser.add_argument(
+        "--quick",
+        action="store_true",
+        help="Uruchom przyspieszone próbkowanie Monte Carlo dla dużych siatek parametrów",
+    )
+    parser.add_argument(
+        "--timeframe",
+        "--market-type",
+        dest="timeframe",
+        choices=sorted(set(TIMEFRAME_TOKEN_MAP.values())),
+        help="Uruchom backtester tylko dla jednego rodzaju rynku: 5m, 15m, 1h lub 4h.",
+    )
+    parser.add_argument(
+        "legacy_tokens",
+        nargs="*",
+        help="Opcjonalne skróty zgodne z watcher.sh, np. quick 5 albo full 15.",
+    )
+    args = parser.parse_args()
+
+    for token in args.legacy_tokens:
+        lowered = token.strip().lower()
+        if lowered == "quick":
+            args.quick = True
+            continue
+        if lowered == "full":
+            continue
+        normalized = normalize_timeframe_token(lowered)
+        if args.timeframe and args.timeframe != normalized:
+            parser.error("Podano więcej niż jeden interwał rynku.")
+        args.timeframe = normalized
+
+    return args
 
 # ==========================================
 # 0A. ALPHA VAULT (OPTIMIZATION HISTORY)
@@ -1730,12 +1799,8 @@ def build_strategy_test_plan(unique_markets):
 if __name__ == "__main__":
     import multiprocessing
     multiprocessing.freeze_support()
-    
-    parser = argparse.ArgumentParser(description="Watcher v10.29 Alpha Vault Backtester (HYPER-DENSE + MONTE CARLO)")
-    parser.add_argument('--fast-track', action='store_true', help="Pomiń testowanie i zbuduj tracked_configs z najlepszych historycznych parametrów")
-    parser.add_argument('--all-history', action='store_true', help="Użyj pełnej bazy historycznej danych L2 z SQLite")
-    parser.add_argument('--quick', action='store_true', help="Uruchom przyspieszone próbkowanie Monte Carlo dla dużych siatek parametrów")
-    args = parser.parse_args()
+
+    args = parse_cli_args()
     QUICK_MODE = args.quick
 
     init_history_db()
@@ -1746,6 +1811,8 @@ if __name__ == "__main__":
     else:
         if args.quick:
             print("⚡ Quick mode aktywny: duże siatki parametrów będą próbkowane w trybie przyspieszonym.")
+        if args.timeframe:
+            print(f"🎯 Filtr interwału aktywny: testuję wyłącznie rynki {args.timeframe}.")
         run_post_mortem_analysis(all_history=args.all_history)
         print("\n⏳ Wczytywanie bazy danych SQLite i formatowanie macierzy Numpy dla HYPER-DENSE GRID SEARCH...")
         time_s = time.time()
@@ -1755,6 +1822,12 @@ if __name__ == "__main__":
         if historical_data.empty:
             print("Nie znaleziono w logach arkusza zleceń żadnych zdarzeń rynkowych nadających się do optymalizacji.")
         else:
+            if args.timeframe:
+                historical_data = historical_data[historical_data['interval_label'] == args.timeframe].copy()
+                if historical_data.empty:
+                    print(f"Brak danych historycznych dla wybranego interwału {args.timeframe}.")
+                    save_terminal_summary_txt()
+                    raise SystemExit(0)
             unique_markets = historical_data['timeframe'].unique()
             test_plan = build_strategy_test_plan(unique_markets)
             total_tests = len(test_plan)
