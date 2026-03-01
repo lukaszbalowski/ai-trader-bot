@@ -78,6 +78,16 @@ case "$COMMAND" in
     docker run --rm -it -v "$(pwd)/data:/app/data" ai-trader python backtester.py --fast-track
     ;;
 
+  execution-analysis)
+    echo "🧪 Running execution analysis for the latest session..."
+    docker run --rm -it -v "$(pwd)/data:/app/data" ai-trader python execution_analysis.py --config-source tracked
+    ;;
+
+  execution-analysis-all)
+    echo "🧪 Running execution analysis on the full historical database..."
+    docker run --rm -it -v "$(pwd)/data:/app/data" ai-trader python execution_analysis.py --all-history --config-source tracked
+    ;;
+
   trades)
     echo "🤖 Exporting 24h trades with orderbook data for AI analysis..."
     docker run --rm -it -v "$(pwd)/data:/app/data" ai-trader python backtester.py --trades
@@ -108,6 +118,8 @@ case "$COMMAND" in
     echo "  backtest-all quick - Runs accelerated Monte Carlo sampling on the entire historical database"
     echo "  backtest-all full 15 - Runs full scan only for 15-minute markets"
     echo "  fast-track       - Dumps best historical settings to tracked_configs.json"
+    echo "  execution-analysis     - Replays latest session and compares live trades vs signals/exits"
+    echo "  execution-analysis-all - Runs the same execution analysis on the full history"
     echo "  trades           - Exports all trades from the last 24h with orderbook snapshots to CSV"
     echo "  test-executor    - Runs the Clob API execution test"
     echo "============================================"
