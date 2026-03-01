@@ -1,6 +1,10 @@
 import asyncio
 import aiohttp
 import json
+from pathlib import Path
+
+
+EXPORT_DIR = Path("data/fetch_market_json")
 
 async def main():
     # Searching for active events containing the phrase "Bitcoin Up or Down"
@@ -14,7 +18,8 @@ async def main():
             async with session.get(url) as resp:
                 if resp.status == 200:
                     data = await resp.json()
-                    filename = "data/markets_list_dump.json"
+                    EXPORT_DIR.mkdir(parents=True, exist_ok=True)
+                    filename = EXPORT_DIR / "markets_list_dump.json"
                     
                     with open(filename, "w", encoding="utf-8") as f:
                         json.dump(data, f, indent=4)

@@ -32,6 +32,8 @@ TIMEFRAME_TOKEN_MAP = {
     "240": "4h",
     "4h": "4h",
 }
+BACKTEST_REPORTS_DIR = "data/backtester/reports"
+BACKTEST_CRASHES_DIR = "data/backtester/crashes"
 
 
 def print(*args, **kwargs):
@@ -42,8 +44,8 @@ def print(*args, **kwargs):
 
 
 def save_terminal_summary_txt():
-    os.makedirs("data/backtest_reports", exist_ok=True)
-    report_file = f"data/backtest_reports/backtest_result_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+    os.makedirs(BACKTEST_REPORTS_DIR, exist_ok=True)
+    report_file = f"{BACKTEST_REPORTS_DIR}/backtest_result_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
     with open(report_file, "w", encoding="utf-8") as f:
         f.write("".join(TERMINAL_LOG_BUFFER))
     print(f"📝 Zapisano pełny log testu do {report_file}.")
@@ -181,8 +183,8 @@ def validate_market_rules(strategy: str, symbol: str, timeframe: str) -> bool:
 
 def create_crash_dump(strategy_name, symbol, interval, exception):
     """Zrzuca stan pamięci do pliku tekstowego w przypadku błędu OOM lub innych awarii."""
-    os.makedirs("data/crashes", exist_ok=True)
-    dump_file = f"data/crashes/crash_dump_{symbol}_{interval}_{strategy_name}_{int(time.time())}.log"
+    os.makedirs(BACKTEST_CRASHES_DIR, exist_ok=True)
+    dump_file = f"{BACKTEST_CRASHES_DIR}/crash_dump_{symbol}_{interval}_{strategy_name}_{int(time.time())}.log"
     try:
         with open(dump_file, "w", encoding="utf-8") as f:
             f.write(f"=== WATCHER HFT CRASH DUMP ===\n")

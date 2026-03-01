@@ -29,6 +29,7 @@ from trade_decision_review import (
 
 
 SUPPORTED_REPLAY_STRATEGIES = ("kinetic_sniper", "momentum", "mid_arb", "otm")
+EXECUTION_REPORTS_DIR = Path("data/execution_analysis/reports")
 
 
 @dataclass
@@ -888,7 +889,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--output",
         default=None,
-        help="Optional output path for the markdown report. If omitted, a timestamped file is created in data/execution_reports/.",
+        help="Optional output path for the markdown report. If omitted, a timestamped file is created in data/execution_analysis/reports/.",
     )
     return parser.parse_args()
 
@@ -897,12 +898,11 @@ def resolve_output_path(requested_path: str | None, session_id: str | None, all_
     if requested_path:
         return Path(requested_path)
 
-    output_dir = Path("data/execution_reports")
-    output_dir.mkdir(parents=True, exist_ok=True)
+    EXECUTION_REPORTS_DIR.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     session_label = "all_history" if all_history else (session_id or "latest_session")
     safe_session_label = session_label.replace("/", "_").replace(" ", "_")
-    return output_dir / f"execution_analysis_{safe_session_label}_{timestamp}.md"
+    return EXECUTION_REPORTS_DIR / f"execution_analysis_{safe_session_label}_{timestamp}.md"
 
 
 def main() -> None:

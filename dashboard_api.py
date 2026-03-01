@@ -1,18 +1,22 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 
+from backtester_service import BacktesterService
 from dashboard_models import CommandResult
 
 
 def create_dashboard_app(state_store, command_bus, mode_manager) -> FastAPI:
     app = FastAPI(title="Watcher Dashboard API", version="0.1.0")
     static_path = Path(__file__).parent / "static" / "dashboard.html"
+    backtester_static_path = Path(__file__).parent / "static" / "backtester.html"
+    backtester_service = BacktesterService()
     app.add_middleware(
         CORSMiddleware,
         allow_origins=[
@@ -30,6 +34,10 @@ def create_dashboard_app(state_store, command_bus, mode_manager) -> FastAPI:
     @app.get("/", response_class=HTMLResponse)
     async def dashboard_page() -> str:
         return static_path.read_text(encoding="utf-8")
+
+    @app.get("/backtester", response_class=HTMLResponse)
+    async def backtester_page() -> str:
+        return backtester_static_path.read_text(encoding="utf-8")
 
     @app.get("/api/dashboard")
     async def get_dashboard() -> dict:
@@ -103,6 +111,51 @@ def create_dashboard_app(state_store, command_bus, mode_manager) -> FastAPI:
     @app.post("/api/system/dump-session-log")
     async def dump_session_log() -> CommandResult:
         return await _dispatch(command_bus.dump_session_log())
+
+    @app.get("/api/backtester/catalog")
+    async def get_backtester_catalog(
+        scope: str = "latest_session",
+        mode: str = "full",
+        markets: str = "",
+        strategies: str = "",
+        manual_samples: str = "",
+    ) -> dict:
+        selected_markets = [item for item in markets.split(",") if item]
+        selected_strategies = [item for item in strategies.split(",") if item]
+        manual_sample_map = {}
+        if manual_samples:
+            try:
+                manual_sample_map = {key: int(value) for key, value in json.loads(manual_samples).items()}
+            except (json.JSONDecodeError, TypeError, ValueError) as exc:
+                raise HTTPException(status_code=400, detail=f"Niepoprawny manual_samples: {exc}") from exc
+        try:
+            return backtester_service.get_catalog(
+                scope=scope,
+                mode=mode,
+                selected_markets=selected_markets,
+                selected_strategies=selected_strategies,
+                manual_samples=manual_sample_map,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.get("/api/backtester/status")
+    async def get_backtester_status() -> dict:
+        return backtester_service.get_status()
+
+    @app.post("/api/backtester/start")
+    async def start_backtester(payload: dict) -> dict:
+        try:
+            return backtester_service.start(payload)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/api/backtester/stop")
+    async def stop_backtester() -> dict:
+        try:
+            return backtester_service.stop()
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     @app.websocket("/ws/dashboard")
     async def websocket_dashboard(websocket: WebSocket) -> None:

@@ -1,0 +1,991 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Watcher Backtester</title>
+  <style>
+    :root {
+      --bg: #07111c;
+      --panel: rgba(10, 23, 37, 0.82);
+      --panel-strong: rgba(14, 31, 48, 0.96);
+      --line: rgba(142, 187, 214, 0.16);
+      --text: #edf4fa;
+      --muted: #8ea1b2;
+      --accent: #5cc8a1;
+      --accent-warm: #ffbc5c;
+      --danger: #ff6f6f;
+      --shadow: 0 24px 80px rgba(0, 0, 0, 0.28);
+      --font-ui: "IBM Plex Sans", "Avenir Next", "Segoe UI", sans-serif;
+      --font-display: "IBM Plex Mono", "Menlo", monospace;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: var(--font-ui);
+      color: var(--text);
+      background:
+        radial-gradient(circle at top left, rgba(92, 200, 161, 0.22), transparent 32%),
+        radial-gradient(circle at top right, rgba(255, 188, 92, 0.18), transparent 28%),
+        linear-gradient(160deg, #07111c 0%, #091827 48%, #041019 100%);
+    }
+
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      background-image: linear-gradient(rgba(255,255,255,0.02) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.02) 1px, transparent 1px);
+      background-size: 28px 28px;
+      opacity: 0.35;
+    }
+
+    .app {
+      width: min(1580px, calc(100vw - 32px));
+      margin: 24px auto 40px;
+      display: grid;
+      gap: 18px;
+      animation: fadeIn 360ms ease-out;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .hero,
+    .panel {
+      border: 1px solid var(--line);
+      background: var(--panel);
+      backdrop-filter: blur(14px);
+      box-shadow: var(--shadow);
+      border-radius: 20px;
+    }
+
+    .hero { padding: 22px; display: grid; gap: 18px; }
+    .panel { padding: 18px; }
+
+    .hero-top,
+    .panel-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 14px;
+      flex-wrap: wrap;
+    }
+
+    .eyebrow {
+      margin: 0 0 6px;
+      color: var(--accent);
+      font-size: 12px;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: clamp(28px, 5vw, 44px);
+      line-height: 1;
+    }
+
+    h2 {
+      margin: 0 0 14px;
+      font-size: 17px;
+      letter-spacing: 0.03em;
+    }
+
+    .hero-meta,
+    .actions,
+    .pill-row {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .pill,
+    .chip {
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 8px 12px;
+      font-size: 13px;
+      color: var(--muted);
+      background: rgba(255, 255, 255, 0.03);
+    }
+
+    .chip.active {
+      color: var(--text);
+      border-color: rgba(92, 200, 161, 0.35);
+      background: rgba(92, 200, 161, 0.08);
+    }
+
+    .summary-grid,
+    .layout,
+    .control-grid {
+      display: grid;
+      gap: 18px;
+    }
+
+    .summary-grid {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+
+    .summary-card,
+    .metric-card,
+    .progress-card,
+    .combo-card,
+    .result-card {
+      padding: 16px 18px;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      background: rgba(255, 255, 255, 0.025);
+    }
+
+    .summary-card .label,
+    .metric-label,
+    .muted {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .summary-card .value,
+    .metric-value {
+      font-family: var(--font-display);
+      font-size: clamp(20px, 4vw, 30px);
+      margin-top: 8px;
+    }
+
+    .layout.primary {
+      grid-template-columns: minmax(0, 1.15fr) minmax(320px, 0.85fr);
+    }
+
+    .layout.secondary {
+      grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+    }
+
+    .stack,
+    .combo-list,
+    .result-list,
+    .log-list,
+    .checkbox-grid {
+      display: grid;
+      gap: 12px;
+    }
+
+    .control-grid {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .toggle-group {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    button,
+    .link-button {
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 10px 14px;
+      cursor: pointer;
+      color: var(--text);
+      background: rgba(255, 255, 255, 0.04);
+      transition: transform 140ms ease, border-color 140ms ease, background 140ms ease;
+      font-family: inherit;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    button:hover,
+    .link-button:hover {
+      transform: translateY(-1px);
+      border-color: rgba(92, 200, 161, 0.35);
+      background: rgba(92, 200, 161, 0.08);
+    }
+
+    button.primary {
+      background: rgba(92, 200, 161, 0.12);
+      border-color: rgba(92, 200, 161, 0.35);
+    }
+
+    button.danger {
+      background: rgba(255, 111, 111, 0.08);
+      border-color: rgba(255, 111, 111, 0.32);
+    }
+
+    button:disabled {
+      opacity: 0.45;
+      cursor: default;
+      transform: none;
+    }
+
+    .checkbox-item,
+    details.combo-card {
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 14px;
+      background: rgba(255, 255, 255, 0.025);
+    }
+
+    label.option {
+      display: flex;
+      gap: 10px;
+      align-items: flex-start;
+      cursor: pointer;
+    }
+
+    input[type="checkbox"],
+    input[type="radio"] {
+      accent-color: var(--accent);
+      margin-top: 2px;
+    }
+
+    .option-title {
+      font-weight: 600;
+      margin-bottom: 3px;
+    }
+
+    .option-sub {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    details summary {
+      list-style: none;
+      cursor: pointer;
+    }
+
+    details summary::-webkit-details-marker {
+      display: none;
+    }
+
+    .combo-top {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: flex-start;
+      flex-wrap: wrap;
+    }
+
+    .combo-title {
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+
+    .combo-kpis {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .combo-body {
+      margin-top: 14px;
+      display: grid;
+      gap: 14px;
+    }
+
+    .param-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+
+    .param-table th,
+    .param-table td {
+      text-align: left;
+      border-top: 1px solid var(--line);
+      padding: 10px 8px;
+    }
+
+    .param-table th {
+      color: var(--muted);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .manual-input {
+      width: 100%;
+      max-width: 220px;
+      border-radius: 12px;
+      border: 1px solid var(--line);
+      background: rgba(255,255,255,0.04);
+      color: var(--text);
+      padding: 10px 12px;
+      font-family: var(--font-display);
+    }
+
+    .progress-stack {
+      display: grid;
+      gap: 14px;
+    }
+
+    .progress-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: center;
+      flex-wrap: wrap;
+      margin-bottom: 8px;
+    }
+
+    .progress-label {
+      font-weight: 600;
+    }
+
+    .progress-track {
+      height: 18px;
+      border-radius: 999px;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.04);
+    }
+
+    .progress-fill {
+      height: 100%;
+      width: 0%;
+      border-radius: 999px;
+      background: linear-gradient(90deg, rgba(92, 200, 161, 0.85), rgba(255, 188, 92, 0.95));
+      transition: width 280ms ease;
+    }
+
+    .progress-fill.current {
+      background: linear-gradient(90deg, rgba(92, 200, 161, 0.85), rgba(92, 200, 161, 0.45));
+    }
+
+    .progress-meta {
+      display: flex;
+      gap: 14px;
+      flex-wrap: wrap;
+      color: var(--muted);
+      font-size: 12px;
+      margin-top: 8px;
+    }
+
+    .status-line {
+      min-height: 18px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .positive { color: var(--accent); }
+    .negative { color: var(--danger); }
+    .warning { color: var(--accent-warm); }
+
+    .empty {
+      color: var(--muted);
+      border: 1px dashed var(--line);
+      border-radius: 16px;
+      padding: 18px;
+      text-align: center;
+    }
+
+    @media (max-width: 1200px) {
+      .summary-grid,
+      .layout.primary,
+      .layout.secondary,
+      .control-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 720px) {
+      .app {
+        width: min(100vw - 20px, 100%);
+        margin: 10px auto 24px;
+      }
+
+      .hero,
+      .panel {
+        padding: 14px;
+      }
+
+      .param-table {
+        display: block;
+        overflow-x: auto;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="app">
+    <section class="hero">
+      <div class="hero-top">
+        <div>
+          <p class="eyebrow">Watcher Optimization Control</p>
+          <h1>Backtester</h1>
+        </div>
+        <div class="hero-meta">
+          <a class="link-button" href="/">Watcher</a>
+          <span class="pill" id="sessionPill">Session: --</span>
+          <span class="pill" id="modePill">Mode: --</span>
+          <span class="pill" id="statusPill">Status: idle</span>
+        </div>
+      </div>
+
+      <div class="summary-grid" id="summaryGrid"></div>
+
+      <div class="actions">
+        <button class="primary" id="startButton">Start Backtest</button>
+        <button class="danger" id="stopButton">Stop</button>
+      </div>
+      <div class="status-line" id="actionStatus"></div>
+    </section>
+
+    <div class="layout primary">
+      <div class="stack">
+        <section class="panel">
+          <h2>Parametry Testu</h2>
+          <div class="control-grid">
+            <div class="metric-card">
+              <div class="metric-label">Zakres danych</div>
+              <div class="toggle-group" id="scopeGroup"></div>
+            </div>
+            <div class="metric-card">
+              <div class="metric-label">Tryb testowania</div>
+              <div class="toggle-group" id="modeGroup"></div>
+            </div>
+            <div class="metric-card">
+              <div class="metric-label">Plan testów</div>
+              <div class="pill-row" id="planMeta"></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <h2>Rynki</h2>
+            <button id="selectAllMarkets">Zaznacz wszystko</button>
+          </div>
+          <div id="marketsList" class="checkbox-grid"></div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <h2>Strategie</h2>
+            <button id="selectAllStrategies">Zaznacz wszystko</button>
+          </div>
+          <div id="strategiesList" class="checkbox-grid"></div>
+        </section>
+      </div>
+
+      <div class="stack">
+        <section class="panel">
+          <h2>Postęp Backtestu</h2>
+          <div class="progress-stack">
+            <div class="progress-card">
+              <div class="progress-head">
+                <div class="progress-label" id="currentProgressLabel">Bieżący test</div>
+                <div class="muted" id="currentProgressPct">0%</div>
+              </div>
+              <div class="progress-track"><div class="progress-fill current" id="currentProgressFill"></div></div>
+              <div class="progress-meta" id="currentProgressMeta"></div>
+            </div>
+
+            <div class="progress-card">
+              <div class="progress-head">
+                <div class="progress-label" id="totalProgressLabel">Łączny przebieg</div>
+                <div class="muted" id="totalProgressPct">0%</div>
+              </div>
+              <div class="progress-track"><div class="progress-fill" id="totalProgressFill"></div></div>
+              <div class="progress-meta" id="totalProgressMeta"></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel">
+          <h2>Wynik Ostatniego Testu</h2>
+          <div id="lastRunBest"></div>
+        </section>
+
+        <section class="panel">
+          <h2>Top 3 Historyczne PnL</h2>
+          <div id="historicalTop" class="result-list"></div>
+        </section>
+      </div>
+    </div>
+
+    <div class="layout secondary">
+      <section class="panel">
+        <h2>Siatka i Monte Carlo</h2>
+        <div id="comboList" class="combo-list"></div>
+      </section>
+
+      <section class="panel">
+        <h2>Aktualne / Ostatnie Wyniki</h2>
+        <div id="liveResults" class="result-list"></div>
+      </section>
+    </div>
+  </main>
+
+  <script>
+    const appState = {
+      scope: "latest_session",
+      mode: "full",
+      selectedMarkets: [],
+      selectedStrategies: [],
+      manualSamples: {},
+      catalog: null,
+      status: null,
+      pollHandle: null,
+    };
+
+    function detectApiBase() {
+      const params = new URLSearchParams(window.location.search);
+      const apiParam = params.get("api");
+      if (apiParam) return apiParam.replace(/\/$/, "");
+      if (window.location.protocol === "file:") {
+        const port = params.get("port") || "8000";
+        return `http://127.0.0.1:${port}`;
+      }
+      return window.location.origin.replace(/\/$/, "");
+    }
+
+    const API_BASE = detectApiBase();
+
+    function money(value) {
+      const sign = value > 0 ? "+" : "";
+      return `${sign}$${Number(value || 0).toFixed(2)}`;
+    }
+
+    function pct(value) {
+      const sign = value > 0 ? "+" : "";
+      return `${sign}${Number(value || 0).toFixed(2)}%`;
+    }
+
+    function number(value) {
+      return Number(value || 0).toLocaleString("pl-PL");
+    }
+
+    function colorClass(value) {
+      if (value > 0) return "positive";
+      if (value < 0) return "negative";
+      return "warning";
+    }
+
+    function setStatus(message, tone = "muted") {
+      const root = document.getElementById("actionStatus");
+      root.className = `status-line ${tone}`;
+      root.textContent = message;
+    }
+
+    async function fetchJson(path, options = {}) {
+      const response = await fetch(`${API_BASE}${path}`, options);
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload.detail || "Request failed");
+      }
+      return payload;
+    }
+
+    function buildQuery() {
+      const params = new URLSearchParams();
+      params.set("scope", appState.scope);
+      params.set("mode", appState.mode);
+      params.set("markets", appState.selectedMarkets.join(","));
+      params.set("strategies", appState.selectedStrategies.join(","));
+      params.set("manual_samples", JSON.stringify(appState.manualSamples));
+      return params.toString();
+    }
+
+    async function refreshCatalog() {
+      const payload = await fetchJson(`/api/backtester/catalog?${buildQuery()}`);
+      appState.catalog = payload;
+      appState.status = payload.status;
+      renderCatalog();
+      renderStatus();
+    }
+
+    async function refreshStatus() {
+      const payload = await fetchJson("/api/backtester/status");
+      appState.status = payload;
+      renderStatus();
+    }
+
+    async function startBacktest() {
+      try {
+        const payload = await fetchJson("/api/backtester/start", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            scope: appState.scope,
+            mode: appState.mode,
+            selected_markets: appState.selectedMarkets,
+            selected_strategies: appState.selectedStrategies,
+            manual_samples: appState.manualSamples,
+          }),
+        });
+        appState.status = payload;
+        setStatus("Backtester wystartował.", "positive");
+        renderStatus();
+      } catch (error) {
+        setStatus(error.message, "negative");
+      }
+    }
+
+    async function stopBacktest() {
+      try {
+        const payload = await fetchJson("/api/backtester/stop", { method: "POST" });
+        appState.status = payload;
+        setStatus("Backtester został zatrzymany.", "warning");
+        renderStatus();
+      } catch (error) {
+        setStatus(error.message, "negative");
+      }
+    }
+
+    function renderScopeControls() {
+      const root = document.getElementById("scopeGroup");
+      const options = [
+        { value: "latest_session", label: "Ostatnia sesja" },
+        { value: "all", label: "Cała baza" },
+      ];
+      root.innerHTML = options.map((option) => `
+        <label class="chip ${appState.scope === option.value ? "active" : ""}">
+          <input type="radio" name="scope" value="${option.value}" ${appState.scope === option.value ? "checked" : ""} />
+          ${option.label}
+        </label>
+      `).join("");
+      root.querySelectorAll('input[name="scope"]').forEach((input) => {
+        input.addEventListener("change", async (event) => {
+          appState.scope = event.target.value;
+          appState.selectedMarkets = [];
+          await refreshCatalog();
+        });
+      });
+    }
+
+    function renderModeControls() {
+      const root = document.getElementById("modeGroup");
+      const options = [
+        { value: "full", label: "Full" },
+        { value: "quick", label: "Quick" },
+        { value: "fast-track", label: "Fast-track" },
+      ];
+      root.innerHTML = options.map((option) => `
+        <label class="chip ${appState.mode === option.value ? "active" : ""}">
+          <input type="radio" name="mode" value="${option.value}" ${appState.mode === option.value ? "checked" : ""} />
+          ${option.label}
+        </label>
+      `).join("");
+      root.querySelectorAll('input[name="mode"]').forEach((input) => {
+        input.addEventListener("change", async (event) => {
+          appState.mode = event.target.value;
+          await refreshCatalog();
+        });
+      });
+    }
+
+    function renderMarkets() {
+      const root = document.getElementById("marketsList");
+      const markets = appState.catalog?.available_markets || [];
+      if (!markets.length) {
+        root.innerHTML = '<div class="empty">Brak rynków w bazie danych.</div>';
+        return;
+      }
+      root.innerHTML = markets.map((market) => `
+        <div class="checkbox-item">
+          <label class="option">
+            <input type="checkbox" data-market="${market.market_key}" ${appState.selectedMarkets.includes(market.market_key) ? "checked" : ""} />
+            <div>
+              <div class="option-title">${market.label}</div>
+              <div class="option-sub">${number(market.ticks_count)} ticków · ${number(market.market_instances)} rynków w próbce</div>
+            </div>
+          </label>
+        </div>
+      `).join("");
+      root.querySelectorAll("[data-market]").forEach((input) => {
+        input.addEventListener("change", async (event) => {
+          const value = event.target.dataset.market;
+          if (event.target.checked) {
+            appState.selectedMarkets = [...new Set([...appState.selectedMarkets, value])];
+          } else {
+            appState.selectedMarkets = appState.selectedMarkets.filter((item) => item !== value);
+          }
+          await refreshCatalog();
+        });
+      });
+    }
+
+    function renderStrategies() {
+      const root = document.getElementById("strategiesList");
+      const strategies = appState.catalog?.available_strategies || [];
+      root.innerHTML = strategies.map((strategy) => `
+        <div class="checkbox-item">
+          <label class="option">
+            <input type="checkbox" data-strategy="${strategy.strategy_key}" ${appState.selectedStrategies.includes(strategy.strategy_key) ? "checked" : ""} />
+            <div>
+              <div class="option-title">${strategy.strategy_label}</div>
+              <div class="option-sub">${strategy.summary}</div>
+            </div>
+          </label>
+        </div>
+      `).join("");
+      root.querySelectorAll("[data-strategy]").forEach((input) => {
+        input.addEventListener("change", async (event) => {
+          const value = event.target.dataset.strategy;
+          if (event.target.checked) {
+            appState.selectedStrategies = [...new Set([...appState.selectedStrategies, value])];
+          } else {
+            appState.selectedStrategies = appState.selectedStrategies.filter((item) => item !== value);
+          }
+          await refreshCatalog();
+        });
+      });
+    }
+
+    function renderSummary() {
+      const summary = appState.catalog?.summary || { total_tests: 0, total_grid_points: 0, total_estimated_operations: 0 };
+      const status = appState.status || {};
+      const grid = document.getElementById("summaryGrid");
+      grid.innerHTML = `
+        <div class="summary-card">
+          <div class="label">Łączna liczba testów</div>
+          <div class="value">${number(summary.total_tests)}</div>
+        </div>
+        <div class="summary-card">
+          <div class="label">Punkty siatki / Monte Carlo</div>
+          <div class="value">${number(summary.total_grid_points)}</div>
+        </div>
+        <div class="summary-card">
+          <div class="label">Koszt operacji</div>
+          <div class="value">${number(summary.total_estimated_operations)}</div>
+        </div>
+        <div class="summary-card">
+          <div class="label">Czas ostatniego przebiegu</div>
+          <div class="value">${status.results?.last_run?.elapsed_label || "--"}</div>
+        </div>
+      `;
+    }
+
+    function renderPlanMeta() {
+      const summary = appState.catalog?.summary || {};
+      const root = document.getElementById("planMeta");
+      root.innerHTML = `
+        <span class="pill">Testów: ${number(summary.total_tests || 0)}</span>
+        <span class="pill">Punktów: ${number(summary.total_grid_points || 0)}</span>
+        <span class="pill">Koszt: ${number(summary.total_estimated_operations || 0)}</span>
+      `;
+    }
+
+    function renderCombinations() {
+      const root = document.getElementById("comboList");
+      const details = appState.catalog?.combination_details || [];
+      if (!details.length) {
+        root.innerHTML = '<div class="empty">Wybierz co najmniej jeden rynek i jedną strategię.</div>';
+        return;
+      }
+      root.innerHTML = details.map((item) => `
+        <details class="combo-card">
+          <summary>
+            <div class="combo-top">
+              <div>
+                <div class="combo-title">${item.market_label} · ${item.strategy_label}</div>
+                <div class="option-sub">${item.summary}</div>
+              </div>
+              <div class="combo-kpis">
+                <span>siatka: ${number(item.raw_total_combinations)}</span>
+                <span>próbki: ${number(item.effective_sample_count)}</span>
+                <span>ticki: ${number(item.ticks_count)}</span>
+                <span>koszt: ${number(item.estimated_operations)}</span>
+              </div>
+            </div>
+          </summary>
+          <div class="combo-body">
+            <div class="option-sub">${item.sampling_note}</div>
+            <div>
+              <div class="metric-label">Ręczne próbkowanie Monte Carlo</div>
+              <input class="manual-input" type="number" min="1" step="1" value="${item.manual_sample_override || ""}" data-sample="${item.combo_key}" placeholder="auto" />
+            </div>
+            <table class="param-table">
+              <thead>
+                <tr>
+                  <th>Parametr / trigger</th>
+                  <th>Zakres min</th>
+                  <th>Zakres max</th>
+                  <th>Skok</th>
+                  <th>Liczba wariantów</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${item.parameters.map((param) => `
+                  <tr>
+                    <td>${param.name}</td>
+                    <td>${param.min}</td>
+                    <td>${param.max}</td>
+                    <td>${param.step ?? "--"}</td>
+                    <td>${number(param.variants)}</td>
+                  </tr>
+                `).join("")}
+              </tbody>
+            </table>
+          </div>
+        </details>
+      `).join("");
+
+      root.querySelectorAll("[data-sample]").forEach((input) => {
+        input.addEventListener("change", async (event) => {
+          const comboKey = event.target.dataset.sample;
+          const value = Number(event.target.value);
+          if (!value || value <= 0) {
+            delete appState.manualSamples[comboKey];
+          } else {
+            appState.manualSamples[comboKey] = value;
+          }
+          await refreshCatalog();
+        });
+      });
+    }
+
+    function renderProgress() {
+      const progress = appState.status?.progress || {};
+      const currentPct = Number(progress.current_test_progress_pct || 0);
+      const totalPct = Number(progress.total_progress_pct || 0);
+      document.getElementById("currentProgressFill").style.width = `${currentPct}%`;
+      document.getElementById("totalProgressFill").style.width = `${totalPct}%`;
+      document.getElementById("currentProgressPct").textContent = `${currentPct.toFixed(1)}%`;
+      document.getElementById("totalProgressPct").textContent = `${totalPct.toFixed(1)}%`;
+      document.getElementById("currentProgressLabel").textContent = progress.current_test_market
+        ? `${progress.current_test_market} · ${progress.current_test_strategy}`
+        : "Bieżący test";
+      document.getElementById("totalProgressLabel").textContent = progress.total_tests
+        ? `Test ${progress.current_test_index || 0} z ${progress.total_tests}`
+        : "Łączny przebieg";
+      document.getElementById("currentProgressMeta").innerHTML = `
+        <span>Punkty: ${number(progress.current_test_points_done || 0)} / ${number(progress.current_test_points_total || 0)}</span>
+        <span>${progress.current_test_label || "Brak aktywnego testu"}</span>
+      `;
+      document.getElementById("totalProgressMeta").innerHTML = `
+        <span>Koszt: ${number(progress.processed_operations || 0)} / ${number(progress.total_estimated_operations || 0)}</span>
+        <span>Start: ${progress.elapsed_label || "00:00"}</span>
+        <span>Pozostało: ${progress.eta_label || "--"}</span>
+        <span>Szybkość: ${number(progress.operations_per_sec || 0)}/s</span>
+      `;
+    }
+
+    function renderLastRun() {
+      const root = document.getElementById("lastRunBest");
+      const best = appState.status?.results?.best_of_run || appState.status?.results?.last_run?.best_result;
+      if (!best) {
+        root.innerHTML = '<div class="empty">Brak zakończonego testu do pokazania.</div>';
+        return;
+      }
+      root.innerHTML = `
+        <div class="result-card">
+          <div class="combo-title">${best.market_label} · ${best.strategy_label}</div>
+          <div class="combo-kpis">
+            <span class="${colorClass(best.pnl_usd)}">${money(best.pnl_usd)} / ${pct(best.pnl_percent)}</span>
+            <span>WR ${Number(best.win_rate || 0).toFixed(1)}%</span>
+            <span>Transakcje ${number(best.trades_count || 0)}</span>
+          </div>
+          <div class="option-sub" style="margin-top:10px;">${Object.entries(best.parameters || {}).map(([key, value]) => `${key}=${value}`).join(", ") || "Brak parametrów."}</div>
+        </div>
+      `;
+    }
+
+    function renderHistoricalTop() {
+      const root = document.getElementById("historicalTop");
+      const items = appState.status?.results?.historical_top_3 || [];
+      if (!items.length) {
+        root.innerHTML = '<div class="empty">Brak danych historycznych.</div>';
+        return;
+      }
+      root.innerHTML = items.map((item, index) => `
+        <div class="result-card">
+          <div class="combo-title">#${index + 1} · ${item.market_label} · ${item.strategy_label}</div>
+          <div class="combo-kpis">
+            <span class="${colorClass(item.pnl_usd)}">${money(item.pnl_usd)} / ${pct(item.pnl_percent)}</span>
+            <span>WR ${Number(item.win_rate || 0).toFixed(1)}%</span>
+            <span>T ${number(item.trades_count || 0)}</span>
+          </div>
+          <div class="option-sub" style="margin-top:10px;">${item.timestamp || ""}</div>
+        </div>
+      `).join("");
+    }
+
+    function renderLiveResults() {
+      const root = document.getElementById("liveResults");
+      const items = appState.status?.results?.completed_results || [];
+      if (!items.length) {
+        root.innerHTML = '<div class="empty">Wyniki pojawią się po zakończeniu pierwszych testów.</div>';
+        return;
+      }
+      root.innerHTML = items.map((item) => `
+        <div class="result-card">
+          <div class="combo-title">${item.market_label} · ${item.strategy_label}</div>
+          <div class="combo-kpis">
+            <span class="${colorClass(item.pnl_usd)}">${money(item.pnl_usd)} / ${pct(item.pnl_percent)}</span>
+            <span>WR ${Number(item.win_rate || 0).toFixed(1)}%</span>
+            <span>Próbek ${number(item.sampled_count || 0)}</span>
+          </div>
+        </div>
+      `).join("");
+    }
+
+    function renderStatus() {
+      const status = appState.status || { status: "idle", progress: {}, results: {} };
+      document.getElementById("sessionPill").textContent = `Session: ${appState.catalog?.session_id || "--"}`;
+      document.getElementById("modePill").textContent = `Mode: ${appState.mode}`;
+      document.getElementById("statusPill").textContent = `Status: ${status.status || "idle"}`;
+      document.getElementById("startButton").disabled = ["starting", "running"].includes(status.status);
+      document.getElementById("stopButton").disabled = !["starting", "running"].includes(status.status);
+      renderProgress();
+      renderLastRun();
+      renderHistoricalTop();
+      renderLiveResults();
+    }
+
+    function renderCatalog() {
+      renderScopeControls();
+      renderModeControls();
+      renderMarkets();
+      renderStrategies();
+      renderSummary();
+      renderPlanMeta();
+      renderCombinations();
+    }
+
+    async function bootstrap() {
+      document.getElementById("startButton").addEventListener("click", startBacktest);
+      document.getElementById("stopButton").addEventListener("click", stopBacktest);
+      document.getElementById("selectAllMarkets").addEventListener("click", async () => {
+        appState.selectedMarkets = (appState.catalog?.available_markets || []).map((item) => item.market_key);
+        await refreshCatalog();
+      });
+      document.getElementById("selectAllStrategies").addEventListener("click", async () => {
+        appState.selectedStrategies = (appState.catalog?.available_strategies || []).map((item) => item.strategy_key);
+        await refreshCatalog();
+      });
+
+      const initialCatalog = await fetchJson(`/api/backtester/catalog?scope=${appState.scope}&mode=${appState.mode}`);
+      appState.catalog = initialCatalog;
+      appState.status = initialCatalog.status;
+      appState.selectedMarkets = initialCatalog.available_markets.map((item) => item.market_key);
+      appState.selectedStrategies = initialCatalog.available_strategies.map((item) => item.strategy_key);
+      await refreshCatalog();
+
+      if (appState.pollHandle) window.clearInterval(appState.pollHandle);
+      appState.pollHandle = window.setInterval(refreshStatus, 1000);
+    }
+
+    bootstrap().catch((error) => {
+      document.body.innerHTML = `
+        <main class="app">
+          <section class="panel">
+            <h2>Backtester Error</h2>
+            <p>${error.message}</p>
+            <p class="muted">Uruchom dashboard pod adresem serwera, np. http://127.0.0.1:8000/backtester</p>
+          </section>
+        </main>
+      `;
+    });
+  </script>
+</body>
+</html>

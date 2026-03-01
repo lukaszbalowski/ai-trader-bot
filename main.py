@@ -79,7 +79,10 @@ FULL_NAMES = {
 }
 
 SESSION_ID = f"sess_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-SESSION_LOG_PATH = os.path.join("data", f"{SESSION_ID}.log")
+MAIN_EXPORT_DIR = os.path.join("data", "main")
+SESSION_EXPORT_DIR = os.path.join(MAIN_EXPORT_DIR, "session_logs")
+TECH_DUMP_DIR = os.path.join(MAIN_EXPORT_DIR, "tech_dumps")
+SESSION_LOG_PATH = os.path.join(SESSION_EXPORT_DIR, f"{SESSION_ID}.log")
 
 OBSERVED_MARKET_TEMPLATES = [
     {'symbol': 'BTC', 'pair': 'BTCUSDT', 'timeframe': '5m', 'interval': 300, 'decimals': 2, 'offset': 0.0},
@@ -832,7 +835,7 @@ def build_session_log_text(trigger_reason="scheduled 5m refresh"):
 
 
 def write_session_log(trigger_reason="scheduled 5m refresh"):
-    os.makedirs("data", exist_ok=True)
+    os.makedirs(SESSION_EXPORT_DIR, exist_ok=True)
     with open(SESSION_LOG_PATH, "w", encoding="utf-8") as f:
         f.write(build_session_log_text(trigger_reason))
     return SESSION_LOG_PATH
@@ -850,8 +853,11 @@ def log_error(context_msg, e):
 
 def perform_tech_dump():
     try:
-        os.makedirs("data", exist_ok=True)
-        filename = f"data/tech_dump_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+        os.makedirs(TECH_DUMP_DIR, exist_ok=True)
+        filename = os.path.join(
+            TECH_DUMP_DIR,
+            f"tech_dump_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+        )
         
         dump_data = {
             "timestamp": datetime.now().isoformat(),
