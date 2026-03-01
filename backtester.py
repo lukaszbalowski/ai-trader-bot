@@ -34,6 +34,19 @@ TIMEFRAME_TOKEN_MAP = {
 }
 BACKTEST_REPORTS_DIR = "data/backtester/reports"
 BACKTEST_CRASHES_DIR = "data/backtester/crashes"
+TRACKED_CONFIGS_FILE = "tracked_configs.json"
+TRACKED_CONFIG_MARKETS = [
+    ('XRP', '15m', 4), ('BTC', '15m', 2), ('ETH', '15m', 2), ('SOL', '15m', 3),
+    ('BTC', '5m', 2), ('ETH', '5m', 2), ('SOL', '5m', 3), ('XRP', '5m', 4),
+    ('XRP', '1h', 4), ('BTC', '1h', 2), ('ETH', '1h', 2), ('SOL', '1h', 3)
+]
+TRACKED_CONFIG_STRATEGIES = [
+    'kinetic_sniper', 'momentum', 'mid_arb', 'otm', 'l2_spread_scalper', 'vol_mean_reversion',
+    'mean_reversion_obi', 'spread_compression', 'divergence_imbalance', 'obi_acceleration',
+    'volatility_compression_breakout', 'absorption_pattern', 'cross_market_spillover',
+    'session_based_edge', 'settlement_convergence', 'liquidity_vacuum',
+    'micro_pullback_continuation', 'synthetic_arbitrage'
+]
 
 
 def print(*args, **kwargs):
@@ -149,6 +162,42 @@ def save_optimization_result(symbol, timeframe, strategy, result_obj, db_path="d
     conn.commit()
     conn.close()
 
+
+def _history_rank(row, min_trades: int):
+    trades_count = int(row["trades_count"] or 0)
+    return (
+        1 if trades_count > min_trades else 0,
+        float(row["pnl_usd"] or 0.0),
+        float(row["pnl_percent"] or 0.0),
+        float(row["win_rate"] or 0.0),
+        trades_count,
+    )
+
+
+def select_best_history_rows(db_path="data/backtest_history.db", min_trades: int = 10):
+    if not os.path.exists(db_path):
+        return {}
+
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = conn.execute(
+            """
+            SELECT symbol, timeframe, strategy, parameters, pnl_usd, pnl_percent, win_rate, trades_count, timestamp
+            FROM optimization_logs
+            """
+        ).fetchall()
+    finally:
+        conn.close()
+
+    best_rows = {}
+    for row in rows:
+        key = (row["symbol"], row["timeframe"], row["strategy"])
+        current = best_rows.get(key)
+        if current is None or _history_rank(row, min_trades) > _history_rank(current, min_trades):
+            best_rows[key] = row
+    return best_rows
+
 def get_top_3_historical(symbol, timeframe, strategy, db_path="data/backtest_history.db"):
     if not os.path.exists(db_path):
         return []
@@ -202,45 +251,34 @@ def create_crash_dump(strategy_name, symbol, interval, exception):
 # ==========================================
 # 0C. FAST-TRACK COMPILER & POST MORTEM
 # ==========================================
-def compile_best_from_vault(db_path="data/backtest_history.db"):
+def compile_best_from_vault(db_path="data/backtest_history.db", min_trades: int = 10):
     print("\n" + "=" * 80)
     print(" 🚀 FAST-TRACK COMPILER: Budowanie bazy najlepszych parametrów z Alpha Vault")
     print("=" * 80)
     if not os.path.exists(db_path):
         print("Brak pliku Alpha Vault (backtest_history.db). Przerywam kompilację.")
         return {}
+
+    best_rows = select_best_history_rows(db_path=db_path, min_trades=min_trades)
     optimizations = {}
-    markets = [
-        ('BTC', '5m', 2), ('ETH', '5m', 2), ('SOL', '5m', 3), ('XRP', '5m', 4),
-        ('BTC', '15m', 2), ('ETH', '15m', 2), ('SOL', '15m', 3), ('XRP', '15m', 4),
-        ('BTC', '1h', 2), ('ETH', '1h', 2), ('SOL', '1h', 3), ('XRP', '1h', 4)
-    ]
-    strategies = [
-        'kinetic_sniper', 'momentum', 'mid_arb', 'otm', 'l2_spread_scalper', 'vol_mean_reversion',
-        'mean_reversion_obi', 'spread_compression', 'divergence_imbalance', 'obi_acceleration',
-        'volatility_compression_breakout', 'absorption_pattern', 'cross_market_spillover',
-        'session_based_edge', 'settlement_convergence', 'liquidity_vacuum',
-        'micro_pullback_continuation', 'synthetic_arbitrage'
-    ]
-    conn = sqlite3.connect(db_path)
-    cur = conn.cursor()
-    for sym, tf, _ in markets:
+    for sym, tf, _ in TRACKED_CONFIG_MARKETS:
         market_key = f"{sym}_{tf}"
         optimizations[market_key] = {}
-        for strat in strategies:
-            cur.execute('''SELECT parameters, win_rate, pnl_percent FROM optimization_logs 
-                           WHERE symbol=? AND timeframe=? AND strategy=? 
-                           ORDER BY pnl_percent DESC LIMIT 1''', (sym, tf, strat))
-            row = cur.fetchone()
-            if row:
-                params_str, wr, pnl = row
-                try:
-                    p = json.loads(params_str)
-                    p['wr'] = round(wr, 1)
-                    optimizations[market_key][strat] = p
-                    print(f"   ✅ Skompilowano {sym} {tf} | {strat} | Rekordowy PnL: +{pnl:.2f}%")
-                except json.JSONDecodeError: pass
-    conn.close()
+        for strat in TRACKED_CONFIG_STRATEGIES:
+            row = best_rows.get((sym, tf, strat))
+            if not row:
+                continue
+            try:
+                params = json.loads(row["parameters"]) if row["parameters"] else {}
+            except json.JSONDecodeError:
+                continue
+            params["wr"] = round(float(row["win_rate"] or 0.0), 1)
+            optimizations[market_key][strat] = params
+            print(
+                f"   ✅ Skompilowano {sym} {tf} | {strat} | "
+                f"PnL: {float(row['pnl_usd'] or 0.0):+.2f}$ | "
+                f"T: {int(row['trades_count'] or 0)}"
+            )
     return optimizations
 
 def get_latest_session_id(db_path="data/polymarket.db"):
@@ -1714,17 +1752,12 @@ def test_synthetic_arbitrage(df_markets, symbol, interval):
 # ==========================================
 # MAIN ORCHESTRATION & JSON GENERATOR
 # ==========================================
-def generate_tracked_configs_output(optimizations):
+def generate_tracked_configs_output(optimizations, config_file=TRACKED_CONFIGS_FILE):
     print("\n" + "=" * 80)
     print(" 📋 PODSUMOWANIE I NADPISYWANIE PLIKU tracked_configs.json")
     print("=" * 80)
     tracked_configs = []
-    markets = [
-        ('XRP', '15m', 4), ('BTC', '15m', 2), ('ETH', '15m', 2), ('SOL', '15m', 3),
-        ('BTC', '5m', 2), ('ETH', '5m', 2), ('SOL', '5m', 3), ('XRP', '5m', 4),
-        ('XRP', '1h', 4), ('BTC', '1h', 2), ('ETH', '1h', 2), ('SOL', '1h', 3)
-    ]
-    for sym, tf, decimals in markets:
+    for sym, tf, decimals in TRACKED_CONFIG_MARKETS:
         market_key = f"{sym}_{tf}"
         strats = optimizations.get(market_key, {})
         interval_s = int(tf.replace('m', '').replace('h', '')) * (60 if 'm' in tf else 3600)
@@ -1746,18 +1779,13 @@ def generate_tracked_configs_output(optimizations):
                 "id": ks.get('id', ''),
                 "wr": ks.get('wr', 0.0)
             }
-        for strategy_name in [
-            'momentum', 'mid_arb', 'otm', 'l2_spread_scalper', 'vol_mean_reversion',
-            'mean_reversion_obi', 'spread_compression', 'divergence_imbalance', 'obi_acceleration',
-            'volatility_compression_breakout', 'absorption_pattern', 'cross_market_spillover',
-            'session_based_edge', 'settlement_convergence', 'liquidity_vacuum',
-            'micro_pullback_continuation', 'synthetic_arbitrage'
-        ]:
+        for strategy_name in TRACKED_CONFIG_STRATEGIES:
+            if strategy_name == 'kinetic_sniper':
+                continue
             if strategy_name in strats:
                 cfg[strategy_name] = {k: v for k, v in strats[strategy_name].items() if k not in ['g_sec', 'max_delta_abs']}
         tracked_configs.append(cfg)
         
-    config_file = "tracked_configs.json"
     try:
         with open(config_file, "w", encoding="utf-8") as f:
             json.dump(tracked_configs, f, indent=4)
@@ -1765,6 +1793,12 @@ def generate_tracked_configs_output(optimizations):
         save_terminal_summary_txt()
     except Exception as e:
         print(f"❌ Błąd zapisu pliku konfiguracyjnego: {e}")
+
+
+def refresh_tracked_configs_from_history(db_path="data/backtest_history.db", config_file=TRACKED_CONFIGS_FILE, min_trades: int = 10):
+    optimizations = compile_best_from_vault(db_path=db_path, min_trades=min_trades)
+    generate_tracked_configs_output(optimizations, config_file=config_file)
+    return optimizations
 
 def build_strategy_test_plan(unique_markets):
     strategy_plan = [

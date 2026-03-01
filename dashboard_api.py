@@ -116,6 +116,7 @@ def create_dashboard_app(state_store, command_bus, mode_manager) -> FastAPI:
     async def get_backtester_catalog(
         scope: str = "latest_session",
         mode: str = "full",
+        adaptive: str = "false",
         markets: str = "",
         strategies: str = "",
         manual_samples: str = "",
@@ -132,6 +133,7 @@ def create_dashboard_app(state_store, command_bus, mode_manager) -> FastAPI:
             return backtester_service.get_catalog(
                 scope=scope,
                 mode=mode,
+                adaptive=adaptive,
                 selected_markets=selected_markets,
                 selected_strategies=selected_strategies,
                 manual_samples=manual_sample_map,

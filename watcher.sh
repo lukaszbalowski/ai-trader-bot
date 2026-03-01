@@ -27,6 +27,8 @@ done
 
 # Create data directory if it doesn't exist to avoid mount errors
 mkdir -p data
+touch tracked_configs.json
+BACKTEST_WORKSPACE_MOUNT="-v $(pwd):/app"
 
 case "$COMMAND" in
   build)
@@ -65,17 +67,23 @@ case "$COMMAND" in
     
   backtest)
     echo "📊 Starting Backtester (Level 2 Analysis + Post Mortem) for the LATEST session..."
-    docker run --rm -it -v "$(pwd)/data:/app/data" ai-trader python backtester.py "${BACKTEST_ARGS[@]}"
+    docker run --rm -it \
+      ${BACKTEST_WORKSPACE_MOUNT} \
+      ai-trader python backtester.py "${BACKTEST_ARGS[@]}"
     ;;
     
   backtest-all)
     echo "📈 Starting Backtester on FULL historical database..."
-    docker run --rm -it -v "$(pwd)/data:/app/data" ai-trader python backtester.py --all-history "${BACKTEST_ARGS[@]}"
+    docker run --rm -it \
+      ${BACKTEST_WORKSPACE_MOUNT} \
+      ai-trader python backtester.py --all-history "${BACKTEST_ARGS[@]}"
     ;;
     
   fast-track)
     echo "⚡ Fast track best configurations from Alpha Vault to tracked_configs.json..."
-    docker run --rm -it -v "$(pwd)/data:/app/data" ai-trader python backtester.py --fast-track
+    docker run --rm -it \
+      ${BACKTEST_WORKSPACE_MOUNT} \
+      ai-trader python backtester.py --fast-track
     ;;
 
   execution-analysis)

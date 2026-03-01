@@ -175,7 +175,7 @@
     }
 
     .control-grid {
-      grid-template-columns: repeat(3, minmax(0, 1fr));
+      grid-template-columns: repeat(4, minmax(0, 1fr));
     }
 
     .toggle-group {
@@ -483,6 +483,7 @@
         <button class="primary" id="startButton">Start Backtest</button>
         <button class="danger" id="stopButton">Stop</button>
       </div>
+      <div class="option-sub">Po zakończeniu przebiegu dashboard odświeża <code>tracked_configs.json</code> z najlepszych wyników historii.</div>
       <div class="status-line" id="actionStatus"></div>
     </section>
 
@@ -498,6 +499,10 @@
             <div class="metric-card">
               <div class="metric-label">Tryb testowania</div>
               <div class="toggle-group" id="modeGroup"></div>
+            </div>
+            <div class="metric-card">
+              <div class="metric-label">Adaptive Grid</div>
+              <div id="adaptiveToggle"></div>
             </div>
             <div class="metric-card">
               <div class="metric-label">Plan testów</div>
@@ -585,6 +590,7 @@
     const appState = {
       scope: "latest_session",
       mode: "full",
+      adaptive: false,
       selectedMarkets: [],
       selectedStrategies: [],
       manualSamples: {},
@@ -645,6 +651,7 @@
       const params = new URLSearchParams();
       params.set("scope", appState.scope);
       params.set("mode", appState.mode);
+      params.set("adaptive", String(appState.adaptive));
       params.set("markets", appState.selectedMarkets.join(","));
       params.set("strategies", appState.selectedStrategies.join(","));
       params.set("manual_samples", JSON.stringify(appState.manualSamples));
@@ -654,6 +661,7 @@
     async function refreshCatalog() {
       const payload = await fetchJson(`/api/backtester/catalog?${buildQuery()}`);
       appState.catalog = payload;
+      appState.adaptive = Boolean(payload.adaptive);
       appState.status = payload.status;
       renderCatalog();
       renderStatus();
@@ -673,6 +681,7 @@
           body: JSON.stringify({
             scope: appState.scope,
             mode: appState.mode,
+            adaptive: appState.adaptive,
             selected_markets: appState.selectedMarkets,
             selected_strategies: appState.selectedStrategies,
             manual_samples: appState.manualSamples,
@@ -734,8 +743,34 @@
       root.querySelectorAll('input[name="mode"]').forEach((input) => {
         input.addEventListener("change", async (event) => {
           appState.mode = event.target.value;
+          if (appState.mode === "fast-track") {
+            appState.adaptive = false;
+          }
           await refreshCatalog();
         });
+      });
+    }
+
+    function renderAdaptiveControl() {
+      const root = document.getElementById("adaptiveToggle");
+      const disabled = appState.mode === "fast-track";
+      if (disabled && appState.adaptive) {
+        appState.adaptive = false;
+      }
+      root.innerHTML = `
+        <div class="checkbox-item">
+          <label class="option">
+            <input type="checkbox" id="adaptiveInput" ${appState.adaptive ? "checked" : ""} ${disabled ? "disabled" : ""} />
+            <div>
+              <div class="option-title">Włącz adaptive-grid</div>
+              <div class="option-sub">${disabled ? "Adaptive jest niedostępny w fast-track." : "Etapowe zawężanie parametrów: 10% -> 5% -> 1%."}</div>
+            </div>
+          </label>
+        </div>
+      `;
+      root.querySelector("#adaptiveInput")?.addEventListener("change", async (event) => {
+        appState.adaptive = Boolean(event.target.checked);
+        await refreshCatalog();
       });
     }
 
@@ -858,7 +893,7 @@
             <div class="option-sub">${item.sampling_note}</div>
             <div>
               <div class="metric-label">Ręczne próbkowanie Monte Carlo</div>
-              <input class="manual-input" type="number" min="1" step="1" value="${item.manual_sample_override || ""}" data-sample="${item.combo_key}" placeholder="auto" />
+              <input class="manual-input" type="number" min="1" step="1" value="${item.manual_sample_override || ""}" data-sample="${item.combo_key}" placeholder="${item.adaptive ? "adaptive" : "auto"}" ${item.adaptive ? "disabled" : ""} />
             </div>
             <table class="param-table">
               <thead>
@@ -1022,7 +1057,7 @@
     function renderStatus() {
       const status = appState.status || { status: "idle", progress: {}, results: {} };
       document.getElementById("sessionPill").textContent = `Session: ${appState.catalog?.session_id || "--"}`;
-      document.getElementById("modePill").textContent = `Mode: ${appState.mode}`;
+      document.getElementById("modePill").textContent = `Mode: ${appState.catalog?.mode_label || appState.mode}`;
       document.getElementById("statusPill").textContent = `Status: ${status.status || "idle"}`;
       document.getElementById("startButton").disabled = ["starting", "running"].includes(status.status);
       document.getElementById("stopButton").disabled = !["starting", "running"].includes(status.status);
@@ -1035,6 +1070,7 @@
     function renderCatalog() {
       renderScopeControls();
       renderModeControls();
+      renderAdaptiveControl();
       renderMarkets();
       renderStrategies();
       renderSummary();
@@ -1054,9 +1090,10 @@
         await refreshCatalog();
       });
 
-      const initialCatalog = await fetchJson(`/api/backtester/catalog?scope=${appState.scope}&mode=${appState.mode}`);
+      const initialCatalog = await fetchJson(`/api/backtester/catalog?scope=${appState.scope}&mode=${appState.mode}&adaptive=${appState.adaptive}`);
       appState.catalog = initialCatalog;
       appState.status = initialCatalog.status;
+      appState.adaptive = Boolean(initialCatalog.adaptive);
       appState.selectedMarkets = initialCatalog.available_markets.map((item) => item.market_key);
       appState.selectedStrategies = initialCatalog.available_strategies.map((item) => item.strategy_key);
       await refreshCatalog();

@@ -1,5 +1,705 @@
 [
     {
+        "symbol": "XRP",
+        "pair": "XRPUSDT",
+        "timeframe": "15m",
+        "interval": 900,
+        "decimals": 4,
+        "offset": 0.0,
+        "kinetic_sniper": {
+            "window_ms": 1350,
+            "trigger_pct": 0.000405,
+            "max_price": 0.255,
+            "max_slippage": 0.035,
+            "id": "xrp_15m_kin_925fa4ad",
+            "wr": 78.6
+        },
+        "momentum": {
+            "delta": 0.000185,
+            "max_p": 0.999,
+            "win_start": 71,
+            "win_end": 5,
+            "id": "xrp_15m_mom_4fcace13",
+            "wr": 94.0
+        },
+        "mid_arb": {
+            "delta": 0.00022,
+            "max_p": 0.938,
+            "win_start": 1200,
+            "win_end": 90,
+            "id": "xrp_15m_arb_9c1f629a",
+            "wr": 69.7
+        },
+        "otm": {
+            "win_start": 60,
+            "win_end": 20,
+            "max_p": 0.07,
+            "id": "xrp_15m_otm_1771765074",
+            "wr": 50.0
+        },
+        "l2_spread_scalper": {
+            "min_spread_threshold": 0.0275,
+            "skew_allowance": 0.0563,
+            "max_hold_sec": 13.75,
+            "id": "xrp_15m_l2scalp_8e29404c",
+            "wr": 68.5
+        },
+        "mean_reversion_obi": {
+            "obi_extreme": 0.765,
+            "neutral_band": 0.12,
+            "max_price": 0.833,
+            "max_hold_ticks": 22,
+            "tp_mult": 2.072,
+            "sl_mult": 0.792,
+            "id": "xrp_15m_obi_mr_0c0a2af8",
+            "wr": 29.8
+        },
+        "spread_compression": {
+            "spread_percentile": 100,
+            "vol_ratio": 1.05,
+            "median_revert_mult": 0.55,
+            "max_price": 1.05,
+            "max_hold_ticks": 19,
+            "tp_mult": 1.492,
+            "sl_mult": 0.945,
+            "id": "xrp_15m_spread_cmp_9ff3f0a5",
+            "wr": 60.0
+        },
+        "divergence_imbalance": {
+            "obi_threshold": 0.748,
+            "divergence_gap": 0.875,
+            "max_price": 1.015,
+            "max_hold_ticks": 23,
+            "tp_mult": 2.016,
+            "sl_mult": 0.88,
+            "id": "xrp_15m_div_obi_f2785130",
+            "wr": 38.0
+        },
+        "obi_acceleration": {
+            "delta_obi": 0.072,
+            "vol_accel": 1.75,
+            "max_price": 0.123,
+            "max_hold_ticks": 27,
+            "tp_mult": 1.955,
+            "sl_mult": 0.855,
+            "id": "xrp_15m_obi_acc_38e5de9b",
+            "wr": 34.7
+        },
+        "volatility_compression_breakout": {
+            "lookback_ticks": 7,
+            "compression_pct": 0.00028,
+            "vol_build_mult": 1.105,
+            "max_price": 0.723,
+            "max_hold_ticks": 23,
+            "tp_mult": 2.088,
+            "sl_mult": 0.675,
+            "id": "xrp_15m_vcb_30769345",
+            "wr": 44.8
+        },
+        "absorption_pattern": {
+            "lookback_ticks": 15,
+            "price_stall_pct": 0.00033,
+            "absorption_ratio": 3.7,
+            "max_price": 0.188,
+            "max_hold_ticks": 30,
+            "tp_mult": 1.848,
+            "sl_mult": 0.585,
+            "id": "xrp_15m_absorb_686d381e",
+            "wr": 56.0
+        },
+        "cross_market_spillover": {
+            "peer_signal": 0.05,
+            "lag_tolerance": 0.165,
+            "memory_markets": 1,
+            "max_price": 1.4,
+            "max_hold_ticks": 25,
+            "tp_mult": 1.595,
+            "sl_mult": 0.72,
+            "id": "xrp_15m_spill_ad95ad0a",
+            "wr": 51.9
+        },
+        "session_based_edge": {
+            "hour_start": 10,
+            "hour_end": 23,
+            "liquidity_cutoff": 125.0,
+            "obi_extreme": 0.56,
+            "delta_obi": 0.035,
+            "max_price": 0.12,
+            "max_hold_ticks": 23,
+            "tp_mult": 1.87,
+            "sl_mult": 0.99,
+            "id": "xrp_15m_session_f102d6cf",
+            "wr": 29.2
+        },
+        "settlement_convergence": {
+            "enter_sec_left": 45,
+            "prob_threshold": 0.5,
+            "obi_confirm": 0.175,
+            "max_hold_ticks": 18,
+            "tp_mult": 1.62,
+            "sl_mult": 0.651,
+            "id": "xrp_15m_settle_908d03f6",
+            "wr": 38.3
+        },
+        "liquidity_vacuum": {
+            "min_counter_vol": 30.0,
+            "dominant_vol": 216.0,
+            "max_price": 0.123,
+            "max_hold_ticks": 19,
+            "tp_mult": 2.035,
+            "sl_mult": 0.782,
+            "id": "xrp_15m_vacuum_834ad3e3",
+            "wr": 42.6
+        },
+        "micro_pullback_continuation": {
+            "lookback_ticks": 6,
+            "impulse_ticks": 0.018,
+            "pullback_ticks": 0.013,
+            "obi_floor": 0.113,
+            "max_price": 0.205,
+            "max_hold_ticks": 22,
+            "tp_mult": 2.035,
+            "sl_mult": 0.736,
+            "id": "xrp_15m_pullback_b01ab507",
+            "wr": 39.4
+        },
+        "synthetic_arbitrage": {
+            "arb_gap": 0.051,
+            "revert_band": 0.009,
+            "max_price": 0.128,
+            "max_hold_ticks": 15,
+            "tp_mult": 1.836,
+            "sl_mult": 0.658,
+            "id": "xrp_15m_synarb_2149acc7",
+            "wr": 68.4
+        }
+    },
+    {
+        "symbol": "BTC",
+        "pair": "BTCUSDT",
+        "timeframe": "15m",
+        "interval": 900,
+        "decimals": 2,
+        "offset": 0.0,
+        "kinetic_sniper": {
+            "window_ms": 1000,
+            "trigger_pct": 0.000375,
+            "max_price": 0.722,
+            "max_slippage": 0.042,
+            "id": "btc_15m_kin_4993f97f",
+            "wr": 90.0
+        },
+        "momentum": {
+            "delta": 9.75,
+            "max_p": 0.999,
+            "win_start": 105,
+            "win_end": 28,
+            "id": "btc_15m_mom_834fa898",
+            "wr": 95.1
+        },
+        "mid_arb": {
+            "delta": 5,
+            "max_p": 0.51,
+            "win_start": 150,
+            "win_end": 45,
+            "id": "btc_15m_arb_1772121675",
+            "wr": 76.5
+        },
+        "otm": {
+            "win_start": 58,
+            "win_end": 26,
+            "max_p": 0.02,
+            "id": "btc_15m_otm_1771765852",
+            "wr": 52.6
+        },
+        "l2_spread_scalper": {
+            "min_spread_threshold": 0.0083,
+            "skew_allowance": 0.025,
+            "max_hold_sec": 22.5,
+            "id": "btc_15m_l2scalp_42fa83cd",
+            "wr": 65.5
+        },
+        "mean_reversion_obi": {
+            "obi_extreme": 0.55,
+            "neutral_band": 0.09,
+            "max_price": 0.158,
+            "max_hold_ticks": 7,
+            "tp_mult": 1.736,
+            "sl_mult": 0.748,
+            "id": "btc_15m_obi_mr_e26675fb",
+            "wr": 17.9
+        },
+        "spread_compression": {
+            "spread_percentile": 100,
+            "vol_ratio": 1.32,
+            "median_revert_mult": 1.1,
+            "max_price": 1.05,
+            "max_hold_ticks": 16,
+            "tp_mult": 1.188,
+            "sl_mult": 0.5,
+            "id": "btc_15m_spread_cmp_3a04c452",
+            "wr": 65.0
+        },
+        "divergence_imbalance": {
+            "obi_threshold": 0.488,
+            "divergence_gap": 0.4,
+            "max_price": 0.105,
+            "max_hold_ticks": 7,
+            "tp_mult": 1.01,
+            "sl_mult": 0.528,
+            "id": "btc_15m_div_obi_ceded1fe",
+            "wr": 27.0
+        },
+        "obi_acceleration": {
+            "delta_obi": 0.315,
+            "vol_accel": 1.438,
+            "max_price": 0.205,
+            "max_hold_ticks": 16,
+            "tp_mult": 1.438,
+            "sl_mult": 0.765,
+            "id": "btc_15m_obi_acc_6fcd94db",
+            "wr": 68.6
+        },
+        "volatility_compression_breakout": {
+            "lookback_ticks": 4,
+            "compression_pct": 0.00084,
+            "vol_build_mult": 1.04,
+            "max_price": 0.128,
+            "max_hold_ticks": 23,
+            "tp_mult": 1.74,
+            "sl_mult": 0.99,
+            "id": "btc_15m_vcb_33c30205",
+            "wr": 40.0
+        },
+        "absorption_pattern": {
+            "lookback_ticks": 4,
+            "price_stall_pct": 0.00039,
+            "absorption_ratio": 1.6,
+            "max_price": 0.188,
+            "max_hold_ticks": 19,
+            "tp_mult": 1.792,
+            "sl_mult": 0.54,
+            "id": "btc_15m_absorb_a16d46dc",
+            "wr": 51.9
+        },
+        "cross_market_spillover": {
+            "peer_signal": 0.075,
+            "lag_tolerance": 0.155,
+            "memory_markets": 5,
+            "max_price": 0.24,
+            "max_hold_ticks": 24,
+            "tp_mult": 1.925,
+            "sl_mult": 0.765,
+            "id": "btc_15m_spill_6bca8f4e",
+            "wr": 60.0
+        },
+        "session_based_edge": {
+            "hour_start": 2,
+            "hour_end": 22,
+            "liquidity_cutoff": 600.0,
+            "obi_extreme": 0.595,
+            "delta_obi": 0.259,
+            "max_price": 0.2,
+            "max_hold_ticks": 20,
+            "tp_mult": 1.485,
+            "sl_mult": 0.765,
+            "id": "btc_15m_session_b33e85e9",
+            "wr": 63.0
+        },
+        "settlement_convergence": {
+            "enter_sec_left": 56,
+            "prob_threshold": 0.553,
+            "obi_confirm": 0.388,
+            "max_hold_ticks": 19,
+            "tp_mult": 1.89,
+            "sl_mult": 0.93,
+            "id": "btc_15m_settle_0025bba1",
+            "wr": 43.1
+        },
+        "liquidity_vacuum": {
+            "min_counter_vol": 36.0,
+            "dominant_vol": 81.0,
+            "max_price": 0.205,
+            "max_hold_ticks": 17,
+            "tp_mult": 1.815,
+            "sl_mult": 0.552,
+            "id": "btc_15m_vacuum_9bf68fc8",
+            "wr": 65.4
+        },
+        "micro_pullback_continuation": {
+            "lookback_ticks": 5,
+            "impulse_ticks": 0.042,
+            "pullback_ticks": 0.01,
+            "obi_floor": 0.15,
+            "max_price": 0.697,
+            "max_hold_ticks": 17,
+            "tp_mult": 1.65,
+            "sl_mult": 0.92,
+            "id": "btc_15m_pullback_63a61713",
+            "wr": 49.0
+        },
+        "synthetic_arbitrage": {
+            "arb_gap": 0.03,
+            "revert_band": 0.01,
+            "max_price": 0.85,
+            "max_hold_ticks": 6,
+            "tp_mult": 1.555,
+            "sl_mult": 0.752,
+            "id": "btc_15m_synarb_ca105a21",
+            "wr": 60.2
+        }
+    },
+    {
+        "symbol": "ETH",
+        "pair": "ETHUSDT",
+        "timeframe": "15m",
+        "interval": 900,
+        "decimals": 2,
+        "offset": 0.0,
+        "kinetic_sniper": {
+            "window_ms": 1000,
+            "trigger_pct": 0.000525,
+            "max_price": 0.541,
+            "max_slippage": 0.0525,
+            "id": "eth_15m_kin_a0a4fb96",
+            "wr": 78.0
+        },
+        "momentum": {
+            "delta": 0.25,
+            "max_p": 0.999,
+            "win_start": 195,
+            "win_end": 14,
+            "id": "eth_15m_mom_cbaed19b",
+            "wr": 90.3
+        },
+        "mid_arb": {
+            "delta": 0.15,
+            "max_p": 0.688,
+            "win_start": 1200,
+            "win_end": 90,
+            "id": "eth_15m_arb_16055b59",
+            "wr": 58.1
+        },
+        "otm": {
+            "win_start": 58,
+            "win_end": 20,
+            "max_p": 0.04,
+            "id": "eth_15m_otm_1771765940",
+            "wr": 45.7
+        },
+        "l2_spread_scalper": {
+            "min_spread_threshold": 0.0275,
+            "skew_allowance": 0.0625,
+            "max_hold_sec": 12.5,
+            "id": "eth_15m_l2scalp_c610d1c0",
+            "wr": 50.0
+        },
+        "mean_reversion_obi": {
+            "obi_extreme": 0.85,
+            "neutral_band": 0.12,
+            "max_price": 0.675,
+            "max_hold_ticks": 25,
+            "tp_mult": 1.21,
+            "sl_mult": 0.647,
+            "id": "eth_15m_obi_mr_9377489c",
+            "wr": 13.3
+        },
+        "spread_compression": {
+            "spread_percentile": 100,
+            "vol_ratio": 1.13,
+            "median_revert_mult": 1.1,
+            "max_price": 0.945,
+            "max_hold_ticks": 8,
+            "tp_mult": 1.056,
+            "sl_mult": 0.945,
+            "id": "eth_15m_spread_cmp_3415a382",
+            "wr": 65.3
+        },
+        "divergence_imbalance": {
+            "obi_threshold": 0.865,
+            "divergence_gap": 0.5,
+            "max_price": 0.91,
+            "max_hold_ticks": 12,
+            "tp_mult": 1.142,
+            "sl_mult": 0.693,
+            "id": "eth_15m_div_obi_9441cc06",
+            "wr": 27.0
+        },
+        "obi_acceleration": {
+            "delta_obi": 0.108,
+            "vol_accel": 1.15,
+            "max_price": 0.41,
+            "max_hold_ticks": 22,
+            "tp_mult": 1.656,
+            "sl_mult": 0.661,
+            "id": "eth_15m_obi_acc_857fa2c8",
+            "wr": 61.0
+        },
+        "volatility_compression_breakout": {
+            "lookback_ticks": 12,
+            "compression_pct": 0.0004,
+            "vol_build_mult": 1.046,
+            "max_price": 0.85,
+            "max_hold_ticks": 26,
+            "tp_mult": 1.392,
+            "sl_mult": 0.567,
+            "id": "eth_15m_vcb_d3138730",
+            "wr": 57.1
+        },
+        "absorption_pattern": {
+            "lookback_ticks": 12,
+            "price_stall_pct": 0.00036,
+            "absorption_ratio": 1.2,
+            "max_price": 0.45,
+            "max_hold_ticks": 16,
+            "tp_mult": 1.411,
+            "sl_mult": 0.945,
+            "id": "eth_15m_absorb_1e7186dd",
+            "wr": 34.1
+        },
+        "cross_market_spillover": {
+            "peer_signal": 0.15,
+            "lag_tolerance": 0.05,
+            "memory_markets": 4,
+            "max_price": 0.6,
+            "max_hold_ticks": 14,
+            "tp_mult": 1.32,
+            "sl_mult": 0.945,
+            "id": "eth_15m_spill_4408a9ab",
+            "wr": 47.3
+        },
+        "session_based_edge": {
+            "hour_start": 6,
+            "hour_end": 19,
+            "liquidity_cutoff": 620.0,
+            "obi_extreme": 0.7,
+            "delta_obi": 0.14,
+            "max_price": 0.56,
+            "max_hold_ticks": 14,
+            "tp_mult": 1.32,
+            "sl_mult": 0.945,
+            "id": "eth_15m_session_13c1b181",
+            "wr": 58.8
+        },
+        "settlement_convergence": {
+            "enter_sec_left": 40,
+            "prob_threshold": 0.535,
+            "obi_confirm": 0.25,
+            "max_hold_ticks": 18,
+            "tp_mult": 1.426,
+            "sl_mult": 0.605,
+            "id": "eth_15m_settle_855fd212",
+            "wr": 28.0
+        },
+        "liquidity_vacuum": {
+            "min_counter_vol": 20.0,
+            "dominant_vol": 270.0,
+            "max_price": 0.492,
+            "max_hold_ticks": 18,
+            "tp_mult": 1.452,
+            "sl_mult": 0.92,
+            "id": "eth_15m_vacuum_04b2b89d",
+            "wr": 65.6
+        },
+        "micro_pullback_continuation": {
+            "lookback_ticks": 9,
+            "impulse_ticks": 0.054,
+            "pullback_ticks": 0.012,
+            "obi_floor": 0.15,
+            "max_price": 0.984,
+            "max_hold_ticks": 13,
+            "tp_mult": 1.65,
+            "sl_mult": 0.92,
+            "id": "eth_15m_pullback_c722edb9",
+            "wr": 55.3
+        },
+        "synthetic_arbitrage": {
+            "arb_gap": 0.015,
+            "revert_band": 0.01,
+            "max_price": 1.02,
+            "max_hold_ticks": 11,
+            "tp_mult": 1.296,
+            "sl_mult": 0.893,
+            "id": "eth_15m_synarb_b72b7cd9",
+            "wr": 58.5
+        }
+    },
+    {
+        "symbol": "SOL",
+        "pair": "SOLUSDT",
+        "timeframe": "15m",
+        "interval": 900,
+        "decimals": 3,
+        "offset": 0.0,
+        "kinetic_sniper": {
+            "window_ms": 1000,
+            "trigger_pct": 0.0011,
+            "max_price": 0.902,
+            "max_slippage": 0.0525,
+            "id": "sol_15m_kin_41717d07",
+            "wr": 80.0
+        },
+        "momentum": {
+            "delta": 0.05,
+            "max_p": 0.999,
+            "win_start": 75,
+            "win_end": 42,
+            "id": "sol_15m_mom_0cd33335",
+            "wr": 95.5
+        },
+        "mid_arb": {
+            "delta": 0.01,
+            "max_p": 0.625,
+            "win_start": 1200,
+            "win_end": 270,
+            "id": "sol_15m_arb_1aacdc2b",
+            "wr": 64.9
+        },
+        "otm": {
+            "win_start": 78,
+            "win_end": 20,
+            "max_p": 0.06,
+            "id": "sol_15m_otm_1771766034",
+            "wr": 50.0
+        },
+        "l2_spread_scalper": {
+            "min_spread_threshold": 0.0275,
+            "skew_allowance": 0.05,
+            "max_hold_sec": 11.25,
+            "id": "sol_15m_l2scalp_51d46c62",
+            "wr": 67.8
+        },
+        "mean_reversion_obi": {
+            "obi_extreme": 0.945,
+            "neutral_band": 0.2,
+            "max_price": 0.54,
+            "max_hold_ticks": 9,
+            "tp_mult": 1.075,
+            "sl_mult": 1.109,
+            "id": "sol_15m_obi_mr_5daef886",
+            "wr": 22.6
+        },
+        "spread_compression": {
+            "spread_percentile": 100,
+            "vol_ratio": 1.05,
+            "median_revert_mult": 1.1,
+            "max_price": 1.05,
+            "max_hold_ticks": 18,
+            "tp_mult": 1.096,
+            "sl_mult": 0.945,
+            "id": "sol_15m_spread_cmp_5c734e93",
+            "wr": 71.5
+        },
+        "divergence_imbalance": {
+            "obi_threshold": 0.929,
+            "divergence_gap": 0.5,
+            "max_price": 0.91,
+            "max_hold_ticks": 8,
+            "tp_mult": 1.075,
+            "sl_mult": 1.109,
+            "id": "sol_15m_div_obi_7233ea59",
+            "wr": 21.3
+        },
+        "obi_acceleration": {
+            "delta_obi": 0.144,
+            "vol_accel": 1.01,
+            "max_price": 1.066,
+            "max_hold_ticks": 14,
+            "tp_mult": 1.518,
+            "sl_mult": 0.85,
+            "id": "sol_15m_obi_acc_d061305b",
+            "wr": 63.7
+        },
+        "volatility_compression_breakout": {
+            "lookback_ticks": 14,
+            "compression_pct": 0.0004,
+            "vol_build_mult": 1.42,
+            "max_price": 1.02,
+            "max_hold_ticks": 23,
+            "tp_mult": 1.392,
+            "sl_mult": 0.945,
+            "id": "sol_15m_vcb_f365a842",
+            "wr": 58.3
+        },
+        "absorption_pattern": {
+            "lookback_ticks": 7,
+            "price_stall_pct": 0.00051,
+            "absorption_ratio": 2.0,
+            "max_price": 0.637,
+            "max_hold_ticks": 16,
+            "tp_mult": 1.232,
+            "sl_mult": 0.765,
+            "id": "sol_15m_absorb_2e4a5530",
+            "wr": 54.5
+        },
+        "cross_market_spillover": {
+            "peer_signal": 0.3,
+            "lag_tolerance": 0.1,
+            "memory_markets": 3,
+            "max_price": 0.48,
+            "max_hold_ticks": 20,
+            "tp_mult": 1.452,
+            "sl_mult": 0.888,
+            "id": "sol_15m_spill_df4cba10",
+            "wr": 56.8
+        },
+        "session_based_edge": {
+            "hour_start": 16,
+            "hour_end": 23,
+            "liquidity_cutoff": 250.0,
+            "obi_extreme": 0.91,
+            "delta_obi": 0.14,
+            "max_price": 0.64,
+            "max_hold_ticks": 14,
+            "tp_mult": 1.452,
+            "sl_mult": 0.945,
+            "id": "sol_15m_session_3abc7be6",
+            "wr": 47.7
+        },
+        "settlement_convergence": {
+            "enter_sec_left": 34,
+            "prob_threshold": 0.651,
+            "obi_confirm": 0.375,
+            "max_hold_ticks": 14,
+            "tp_mult": 1.426,
+            "sl_mult": 0.5,
+            "id": "sol_15m_settle_b4ddb62b",
+            "wr": 23.4
+        },
+        "liquidity_vacuum": {
+            "min_counter_vol": 40.0,
+            "dominant_vol": 180.0,
+            "max_price": 0.451,
+            "max_hold_ticks": 12,
+            "tp_mult": 1.65,
+            "sl_mult": 0.92,
+            "id": "sol_15m_vacuum_23a0c072",
+            "wr": 58.5
+        },
+        "micro_pullback_continuation": {
+            "lookback_ticks": 8,
+            "impulse_ticks": 0.072,
+            "pullback_ticks": 0.012,
+            "obi_floor": 0.105,
+            "max_price": 0.902,
+            "max_hold_ticks": 17,
+            "tp_mult": 1.65,
+            "sl_mult": 0.92,
+            "id": "sol_15m_pullback_158e69fa",
+            "wr": 46.6
+        },
+        "synthetic_arbitrage": {
+            "arb_gap": 0.033,
+            "revert_band": 0.011,
+            "max_price": 0.85,
+            "max_hold_ticks": 7,
+            "tp_mult": 1.555,
+            "sl_mult": 0.5,
+            "id": "sol_15m_synarb_e6b1e9fd",
+            "wr": 66.0
+        }
+    },
+    {
         "symbol": "BTC",
         "pair": "BTCUSDT",
         "timeframe": "5m",
@@ -8,25 +708,170 @@
         "offset": 0.0,
         "kinetic_sniper": {
             "window_ms": 1000,
-            "trigger_pct": 0.0002,
-            "max_target_dist": 35.0,
-            "max_price": 0.7,
-            "max_slippage": 0.04,
-            "id": "btc_5m_kin_opt"
+            "trigger_pct": 0.000375,
+            "max_price": 0.686,
+            "max_slippage": 0.042,
+            "id": "btc_5m_kin_49b51d8e",
+            "wr": 90.1
         },
         "momentum": {
-            "delta": 4.0,
-            "max_p": 0.95,
-            "win_start": 76,
-            "win_end": 6,
-            "id": "btc_5m_mom_opt"
+            "delta": 6.375,
+            "max_p": 0.758,
+            "win_start": 105,
+            "win_end": 14,
+            "id": "btc_5m_mom_8ab5da21",
+            "wr": 77.1
+        },
+        "mid_arb": {
+            "delta": 5,
+            "max_p": 0.47,
+            "win_start": 170,
+            "win_end": 30,
+            "id": "btc_5m_arb_1772122033",
+            "wr": 65.7
         },
         "otm": {
-            "wr": 33.3,
-            "max_p": 0.02,
-            "win_start": 76,
-            "win_end": 22,
-            "id": "btc_5m_otm_opt"
+            "win_start": 45,
+            "win_end": 18,
+            "max_p": 0.068,
+            "id": "btc_5m_otm_3fe6c7cd",
+            "wr": 35.5
+        },
+        "l2_spread_scalper": {
+            "min_spread_threshold": 0.033,
+            "skew_allowance": 0.0563,
+            "max_hold_sec": 12.5,
+            "id": "btc_5m_l2scalp_6c048c17",
+            "wr": 64.5
+        },
+        "mean_reversion_obi": {
+            "obi_extreme": 0.55,
+            "neutral_band": 0.23,
+            "max_price": 0.63,
+            "max_hold_ticks": 14,
+            "tp_mult": 1.568,
+            "sl_mult": 0.968,
+            "id": "btc_5m_obi_mr_cddbf129",
+            "wr": 19.5
+        },
+        "spread_compression": {
+            "spread_percentile": 99,
+            "vol_ratio": 1.05,
+            "median_revert_mult": 0.55,
+            "max_price": 0.6,
+            "max_hold_ticks": 22,
+            "tp_mult": 1.65,
+            "sl_mult": 0.85,
+            "id": "btc_5m_spread_cmp_cf2cac0b",
+            "wr": 52.2
+        },
+        "divergence_imbalance": {
+            "obi_threshold": 0.845,
+            "divergence_gap": 0.5,
+            "max_price": 0.952,
+            "max_hold_ticks": 17,
+            "tp_mult": 1.613,
+            "sl_mult": 0.832,
+            "id": "btc_5m_div_obi_af657758",
+            "wr": 37.1
+        },
+        "obi_acceleration": {
+            "delta_obi": 0.117,
+            "vol_accel": 1.582,
+            "max_price": 0.607,
+            "max_hold_ticks": 20,
+            "tp_mult": 1.601,
+            "sl_mult": 0.85,
+            "id": "btc_5m_obi_acc_3e545c20",
+            "wr": 47.0
+        },
+        "volatility_compression_breakout": {
+            "lookback_ticks": 5,
+            "compression_pct": 0.00072,
+            "vol_build_mult": 1.346,
+            "max_price": 0.476,
+            "max_hold_ticks": 9,
+            "tp_mult": 1.67,
+            "sl_mult": 0.945,
+            "id": "btc_5m_vcb_d6384bb8",
+            "wr": 55.9
+        },
+        "absorption_pattern": {
+            "lookback_ticks": 7,
+            "price_stall_pct": 0.00048,
+            "absorption_ratio": 1.2,
+            "max_price": 0.975,
+            "max_hold_ticks": 22,
+            "tp_mult": 1.613,
+            "sl_mult": 0.945,
+            "id": "btc_5m_absorb_60cae428",
+            "wr": 35.9
+        },
+        "cross_market_spillover": {
+            "peer_signal": 0.39,
+            "lag_tolerance": 0.13,
+            "memory_markets": 4,
+            "max_price": 0.48,
+            "max_hold_ticks": 14,
+            "tp_mult": 1.32,
+            "sl_mult": 0.614,
+            "id": "btc_5m_spill_1fc13d02",
+            "wr": 68.4
+        },
+        "session_based_edge": {
+            "hour_start": 6,
+            "hour_end": 23,
+            "liquidity_cutoff": 625.0,
+            "obi_extreme": 0.889,
+            "delta_obi": 0.14,
+            "max_price": 1.04,
+            "max_hold_ticks": 12,
+            "tp_mult": 1.584,
+            "sl_mult": 0.945,
+            "id": "btc_5m_session_72602207",
+            "wr": 52.3
+        },
+        "settlement_convergence": {
+            "enter_sec_left": 61,
+            "prob_threshold": 0.5,
+            "obi_confirm": 0.375,
+            "max_hold_ticks": 16,
+            "tp_mult": 1.374,
+            "sl_mult": 0.744,
+            "id": "btc_5m_settle_13e6fa90",
+            "wr": 49.1
+        },
+        "liquidity_vacuum": {
+            "min_counter_vol": 22.0,
+            "dominant_vol": 270.0,
+            "max_price": 0.656,
+            "max_hold_ticks": 16,
+            "tp_mult": 1.452,
+            "sl_mult": 0.92,
+            "id": "btc_5m_vacuum_2b138d62",
+            "wr": 60.9
+        },
+        "micro_pullback_continuation": {
+            "lookback_ticks": 4,
+            "impulse_ticks": 0.054,
+            "pullback_ticks": 0.02,
+            "obi_floor": 0.217,
+            "max_price": 0.451,
+            "max_hold_ticks": 16,
+            "tp_mult": 1.584,
+            "sl_mult": 0.92,
+            "id": "btc_5m_pullback_d89df936",
+            "wr": 44.0
+        },
+        "synthetic_arbitrage": {
+            "arb_gap": 0.042,
+            "revert_band": 0.01,
+            "max_price": 0.85,
+            "max_hold_ticks": 11,
+            "tp_mult": 1.296,
+            "sl_mult": 0.94,
+            "id": "btc_5m_synarb_2f5b8a82",
+            "wr": 47.3
         }
     },
     {
@@ -38,10 +883,170 @@
         "offset": 0.0,
         "kinetic_sniper": {
             "window_ms": 1000,
-            "trigger_pct": 0.0002,
-            "max_price": 0.78,
-            "max_slippage": 0.05,
-            "id": "eth_5m_kin_opt"
+            "trigger_pct": 0.000577,
+            "max_price": 0.65,
+            "max_slippage": 0.042,
+            "id": "eth_5m_kin_4438c61b",
+            "wr": 82.4
+        },
+        "momentum": {
+            "delta": 0.35,
+            "max_p": 0.689,
+            "win_start": 80,
+            "win_end": 14,
+            "id": "eth_5m_mom_212c17f6",
+            "wr": 77.0
+        },
+        "mid_arb": {
+            "delta": 0.24,
+            "max_p": 0.525,
+            "win_start": 1200,
+            "win_end": 90,
+            "id": "eth_5m_arb_bd0e2930",
+            "wr": 67.0
+        },
+        "otm": {
+            "win_start": 45,
+            "win_end": 20,
+            "max_p": 0.122,
+            "id": "eth_5m_otm_0f10e31f",
+            "wr": 33.9
+        },
+        "l2_spread_scalper": {
+            "min_spread_threshold": 0.06,
+            "skew_allowance": 0.02,
+            "max_hold_sec": 5.0,
+            "id": "eth_5m_l2scalp_6d8ef160",
+            "wr": 82.4
+        },
+        "mean_reversion_obi": {
+            "obi_extreme": 0.85,
+            "neutral_band": 0.2,
+            "max_price": 0.495,
+            "max_hold_ticks": 21,
+            "tp_mult": 1.01,
+            "sl_mult": 0.924,
+            "id": "eth_5m_obi_mr_4a03a7f2",
+            "wr": 11.9
+        },
+        "spread_compression": {
+            "spread_percentile": 100,
+            "vol_ratio": 1.05,
+            "median_revert_mult": 1.1,
+            "max_price": 1.05,
+            "max_hold_ticks": 16,
+            "tp_mult": 1.32,
+            "sl_mult": 0.945,
+            "id": "eth_5m_spread_cmp_928780af",
+            "wr": 71.5
+        },
+        "divergence_imbalance": {
+            "obi_threshold": 0.78,
+            "divergence_gap": 0.5,
+            "max_price": 0.91,
+            "max_hold_ticks": 11,
+            "tp_mult": 1.613,
+            "sl_mult": 0.647,
+            "id": "eth_5m_div_obi_d228aff6",
+            "wr": 21.4
+        },
+        "obi_acceleration": {
+            "delta_obi": 0.09,
+            "vol_accel": 1.654,
+            "max_price": 0.574,
+            "max_hold_ticks": 14,
+            "tp_mult": 1.725,
+            "sl_mult": 0.945,
+            "id": "eth_5m_obi_acc_7c1d631d",
+            "wr": 51.5
+        },
+        "volatility_compression_breakout": {
+            "lookback_ticks": 9,
+            "compression_pct": 0.0004,
+            "vol_build_mult": 1.495,
+            "max_price": 0.425,
+            "max_hold_ticks": 14,
+            "tp_mult": 1.489,
+            "sl_mult": 0.567,
+            "id": "eth_5m_vcb_4d09b4f9",
+            "wr": 50.0
+        },
+        "absorption_pattern": {
+            "lookback_ticks": 8,
+            "price_stall_pct": 0.0006,
+            "absorption_ratio": 1.05,
+            "max_price": 0.375,
+            "max_hold_ticks": 11,
+            "tp_mult": 1.478,
+            "sl_mult": 0.945,
+            "id": "eth_5m_absorb_694557f3",
+            "wr": 31.8
+        },
+        "cross_market_spillover": {
+            "peer_signal": 0.15,
+            "lag_tolerance": 0.15,
+            "memory_markets": 2,
+            "max_price": 0.96,
+            "max_hold_ticks": 7,
+            "tp_mult": 1.584,
+            "sl_mult": 0.917,
+            "id": "eth_5m_spill_bc7ad2cc",
+            "wr": 48.5
+        },
+        "session_based_edge": {
+            "hour_start": 8,
+            "hour_end": 23,
+            "liquidity_cutoff": 350.0,
+            "obi_extreme": 1.05,
+            "delta_obi": 0.14,
+            "max_price": 0.4,
+            "max_hold_ticks": 20,
+            "tp_mult": 1.65,
+            "sl_mult": 0.945,
+            "id": "eth_5m_session_a9e74c99",
+            "wr": 36.8
+        },
+        "settlement_convergence": {
+            "enter_sec_left": 68,
+            "prob_threshold": 0.535,
+            "obi_confirm": 0.15,
+            "max_hold_ticks": 13,
+            "tp_mult": 1.62,
+            "sl_mult": 0.93,
+            "id": "eth_5m_settle_c310aa4b",
+            "wr": 55.4
+        },
+        "liquidity_vacuum": {
+            "min_counter_vol": 28.0,
+            "dominant_vol": 216.0,
+            "max_price": 0.41,
+            "max_hold_ticks": 11,
+            "tp_mult": 1.32,
+            "sl_mult": 0.92,
+            "id": "eth_5m_vacuum_0a75aa0a",
+            "wr": 51.9
+        },
+        "micro_pullback_continuation": {
+            "lookback_ticks": 6,
+            "impulse_ticks": 0.066,
+            "pullback_ticks": 0.01,
+            "obi_floor": 0.15,
+            "max_price": 0.82,
+            "max_hold_ticks": 17,
+            "tp_mult": 1.65,
+            "sl_mult": 0.5,
+            "id": "eth_5m_pullback_124fb06b",
+            "wr": 57.0
+        },
+        "synthetic_arbitrage": {
+            "arb_gap": 0.033,
+            "revert_band": 0.01,
+            "max_price": 0.425,
+            "max_hold_ticks": 5,
+            "tp_mult": 1.296,
+            "sl_mult": 0.658,
+            "id": "eth_5m_synarb_0cd2ad97",
+            "wr": 57.7
         }
     },
     {
@@ -49,21 +1054,1048 @@
         "pair": "SOLUSDT",
         "timeframe": "5m",
         "interval": 300,
-        "decimals": 2,
+        "decimals": 3,
         "offset": 0.0,
-        "mid_arb": {
-            "delta": 0.01,
-            "max_p": 0.47,
-            "win_start": 620,
-            "win_end": 142,
-            "id": "sol_5m_arb_opt"
+        "kinetic_sniper": {
+            "window_ms": 1000,
+            "trigger_pct": 0.0011,
+            "max_price": 0.999,
+            "max_slippage": 0.042,
+            "id": "sol_5m_kin_f2248326",
+            "wr": 93.1
         },
         "momentum": {
+            "delta": 0.04,
+            "max_p": 0.875,
+            "win_start": 105,
+            "win_end": 14,
+            "id": "sol_5m_mom_833e3eb8",
+            "wr": 83.0
+        },
+        "mid_arb": {
             "delta": 0.01,
-            "max_p": 0.58,
-            "win_start": 104,
-            "win_end": 44,
-            "id": "sol_5m_mom_opt"
+            "max_p": 0.45,
+            "win_start": 190,
+            "win_end": 30,
+            "id": "sol_5m_arb_1771766421",
+            "wr": 70.5
+        },
+        "otm": {
+            "win_start": 52,
+            "win_end": 20,
+            "max_p": 0.03,
+            "id": "sol_5m_otm_1771766429",
+            "wr": 44.4
+        },
+        "l2_spread_scalper": {
+            "min_spread_threshold": 0.0385,
+            "skew_allowance": 0.0813,
+            "max_hold_sec": 12.5,
+            "id": "sol_5m_l2scalp_c52dc982",
+            "wr": 65.8
+        },
+        "mean_reversion_obi": {
+            "obi_extreme": 0.756,
+            "neutral_band": 0.3,
+            "max_price": 0.225,
+            "max_hold_ticks": 9,
+            "tp_mult": 1.344,
+            "sl_mult": 0.924,
+            "id": "sol_5m_obi_mr_cae9fb0c",
+            "wr": 8.3
+        },
+        "spread_compression": {
+            "spread_percentile": 99,
+            "vol_ratio": 2.65,
+            "median_revert_mult": 0.55,
+            "max_price": 1.05,
+            "max_hold_ticks": 16,
+            "tp_mult": 1.452,
+            "sl_mult": 0.661,
+            "id": "sol_5m_spread_cmp_286615da",
+            "wr": 61.7
+        },
+        "divergence_imbalance": {
+            "obi_threshold": 0.78,
+            "divergence_gap": 0.5,
+            "max_price": 0.91,
+            "max_hold_ticks": 7,
+            "tp_mult": 1.68,
+            "sl_mult": 0.647,
+            "id": "sol_5m_div_obi_8f130042",
+            "wr": 29.5
+        },
+        "obi_acceleration": {
+            "delta_obi": 0.095,
+            "vol_accel": 1.783,
+            "max_price": 0.574,
+            "max_hold_ticks": 17,
+            "tp_mult": 1.725,
+            "sl_mult": 0.945,
+            "id": "sol_5m_obi_acc_8f45b1b6",
+            "wr": 52.0
+        },
+        "volatility_compression_breakout": {
+            "lookback_ticks": 13,
+            "compression_pct": 0.00056,
+            "vol_build_mult": 1.435,
+            "max_price": 0.451,
+            "max_hold_ticks": 11,
+            "tp_mult": 1.74,
+            "sl_mult": 0.945,
+            "id": "sol_5m_vcb_33df945f",
+            "wr": 45.8
+        },
+        "absorption_pattern": {
+            "lookback_ticks": 7,
+            "price_stall_pct": 0.00051,
+            "absorption_ratio": 1.7,
+            "max_price": 0.637,
+            "max_hold_ticks": 16,
+            "tp_mult": 1.288,
+            "sl_mult": 0.99,
+            "id": "sol_5m_absorb_35f7573a",
+            "wr": 31.0
+        },
+        "cross_market_spillover": {
+            "peer_signal": 0.42,
+            "lag_tolerance": 0.05,
+            "memory_markets": 3,
+            "max_price": 0.61,
+            "max_hold_ticks": 20,
+            "tp_mult": 1.518,
+            "sl_mult": 0.756,
+            "id": "sol_5m_spill_63a36c48",
+            "wr": 53.8
+        },
+        "session_based_edge": {
+            "hour_start": 13,
+            "hour_end": 17,
+            "liquidity_cutoff": 250.0,
+            "obi_extreme": 0.805,
+            "delta_obi": 0.21,
+            "max_price": 1.04,
+            "max_hold_ticks": 21,
+            "tp_mult": 1.65,
+            "sl_mult": 0.661,
+            "id": "sol_5m_session_10118247",
+            "wr": 62.5
+        },
+        "settlement_convergence": {
+            "enter_sec_left": 45,
+            "prob_threshold": 0.714,
+            "obi_confirm": 0.15,
+            "max_hold_ticks": 18,
+            "tp_mult": 1.426,
+            "sl_mult": 0.512,
+            "id": "sol_5m_settle_86b59b5b",
+            "wr": 48.6
+        },
+        "liquidity_vacuum": {
+            "min_counter_vol": 56.0,
+            "dominant_vol": 252.0,
+            "max_price": 1.066,
+            "max_hold_ticks": 12,
+            "tp_mult": 1.01,
+            "sl_mult": 0.92,
+            "id": "sol_5m_vacuum_2ea74dce",
+            "wr": 58.0
+        },
+        "micro_pullback_continuation": {
+            "lookback_ticks": 4,
+            "impulse_ticks": 0.042,
+            "pullback_ticks": 0.01,
+            "obi_floor": 0.075,
+            "max_price": 0.984,
+            "max_hold_ticks": 14,
+            "tp_mult": 1.32,
+            "sl_mult": 0.782,
+            "id": "sol_5m_pullback_35a7ed23",
+            "wr": 53.8
+        },
+        "synthetic_arbitrage": {
+            "arb_gap": 0.042,
+            "revert_band": 0.01,
+            "max_price": 0.468,
+            "max_hold_ticks": 9,
+            "tp_mult": 1.555,
+            "sl_mult": 0.94,
+            "id": "sol_5m_synarb_862c2c03",
+            "wr": 52.3
+        }
+    },
+    {
+        "symbol": "XRP",
+        "pair": "XRPUSDT",
+        "timeframe": "5m",
+        "interval": 300,
+        "decimals": 4,
+        "offset": 0.0,
+        "kinetic_sniper": {
+            "window_ms": 1000,
+            "trigger_pct": 0.00135,
+            "max_price": 0.999,
+            "max_slippage": 0.042,
+            "id": "xrp_5m_kin_ee2f0f1e",
+            "wr": 100.0
+        },
+        "momentum": {
+            "delta": 0.00055,
+            "max_p": 0.758,
+            "win_start": 75,
+            "win_end": 14,
+            "id": "xrp_5m_mom_f533494d",
+            "wr": 87.0
+        },
+        "mid_arb": {
+            "delta": 0.0001,
+            "max_p": 0.51,
+            "win_start": 140,
+            "win_end": 30,
+            "id": "xrp_5m_arb_1771766516",
+            "wr": 75.8
+        },
+        "otm": {
+            "win_start": 58,
+            "win_end": 18,
+            "max_p": 0.068,
+            "id": "xrp_5m_otm_700e133a",
+            "wr": 31.3
+        },
+        "l2_spread_scalper": {
+            "min_spread_threshold": 0.033,
+            "skew_allowance": 0.0875,
+            "max_hold_sec": 12.5,
+            "id": "xrp_5m_l2scalp_58eca905",
+            "wr": 59.3
+        },
+        "mean_reversion_obi": {
+            "obi_extreme": 0.784,
+            "neutral_band": 0.1,
+            "max_price": 0.675,
+            "max_hold_ticks": 14,
+            "tp_mult": 1.613,
+            "sl_mult": 0.924,
+            "id": "xrp_5m_obi_mr_10563793",
+            "wr": 13.5
+        },
+        "spread_compression": {
+            "spread_percentile": 99,
+            "vol_ratio": 2.36,
+            "median_revert_mult": 0.55,
+            "max_price": 0.375,
+            "max_hold_ticks": 19,
+            "tp_mult": 1.32,
+            "sl_mult": 0.945,
+            "id": "xrp_5m_spread_cmp_54b6e0a1",
+            "wr": 50.0
+        },
+        "divergence_imbalance": {
+            "obi_threshold": 0.715,
+            "divergence_gap": 0.5,
+            "max_price": 0.35,
+            "max_hold_ticks": 13,
+            "tp_mult": 1.156,
+            "sl_mult": 0.924,
+            "id": "xrp_5m_div_obi_d4d617fe",
+            "wr": 15.6
+        },
+        "obi_acceleration": {
+            "delta_obi": 0.162,
+            "vol_accel": 1.797,
+            "max_price": 0.779,
+            "max_hold_ticks": 15,
+            "tp_mult": 1.725,
+            "sl_mult": 0.945,
+            "id": "xrp_5m_obi_acc_2a28aa60",
+            "wr": 51.1
+        },
+        "volatility_compression_breakout": {
+            "lookback_ticks": 7,
+            "compression_pct": 0.0004,
+            "vol_build_mult": 1.944,
+            "max_price": 0.51,
+            "max_hold_ticks": 12,
+            "tp_mult": 1.615,
+            "sl_mult": 0.5,
+            "id": "xrp_5m_vcb_4dc63228",
+            "wr": 54.7
+        },
+        "absorption_pattern": {
+            "lookback_ticks": 9,
+            "price_stall_pct": 0.00066,
+            "absorption_ratio": 1.7,
+            "max_price": 0.637,
+            "max_hold_ticks": 16,
+            "tp_mult": 1.288,
+            "sl_mult": 0.99,
+            "id": "xrp_5m_absorb_9cf2a937",
+            "wr": 27.6
+        },
+        "cross_market_spillover": {
+            "peer_signal": 0.24,
+            "lag_tolerance": 0.12,
+            "memory_markets": 3,
+            "max_price": 0.6,
+            "max_hold_ticks": 20,
+            "tp_mult": 1.584,
+            "sl_mult": 0.661,
+            "id": "xrp_5m_spill_cb8ad6d5",
+            "wr": 57.0
+        },
+        "session_based_edge": {
+            "hour_start": 8,
+            "hour_end": 23,
+            "liquidity_cutoff": 650.0,
+            "obi_extreme": 0.875,
+            "delta_obi": 0.07,
+            "max_price": 0.88,
+            "max_hold_ticks": 13,
+            "tp_mult": 1.32,
+            "sl_mult": 0.945,
+            "id": "xrp_5m_session_3f1c2ef8",
+            "wr": 45.1
+        },
+        "settlement_convergence": {
+            "enter_sec_left": 45,
+            "prob_threshold": 0.589,
+            "obi_confirm": 0.3,
+            "max_hold_ticks": 8,
+            "tp_mult": 1.62,
+            "sl_mult": 0.995,
+            "id": "xrp_5m_settle_8fe2c25e",
+            "wr": 35.9
+        },
+        "liquidity_vacuum": {
+            "min_counter_vol": 22.0,
+            "dominant_vol": 252.0,
+            "max_price": 1.066,
+            "max_hold_ticks": 11,
+            "tp_mult": 1.452,
+            "sl_mult": 0.828,
+            "id": "xrp_5m_vacuum_d9001546",
+            "wr": 35.4
+        },
+        "micro_pullback_continuation": {
+            "lookback_ticks": 5,
+            "impulse_ticks": 0.03,
+            "pullback_ticks": 0.02,
+            "obi_floor": 0.225,
+            "max_price": 0.41,
+            "max_hold_ticks": 18,
+            "tp_mult": 1.65,
+            "sl_mult": 0.92,
+            "id": "xrp_5m_pullback_4221024e",
+            "wr": 35.5
+        },
+        "synthetic_arbitrage": {
+            "arb_gap": 0.033,
+            "revert_band": 0.011,
+            "max_price": 0.425,
+            "max_hold_ticks": 7,
+            "tp_mult": 1.426,
+            "sl_mult": 0.846,
+            "id": "xrp_5m_synarb_db9674a2",
+            "wr": 57.7
+        }
+    },
+    {
+        "symbol": "XRP",
+        "pair": "XRPUSDT",
+        "timeframe": "1h",
+        "interval": 3600,
+        "decimals": 4,
+        "offset": 0.0,
+        "kinetic_sniper": {
+            "window_ms": 1000,
+            "trigger_pct": 0.00135,
+            "max_price": 0.65,
+            "max_slippage": 0.0525,
+            "id": "xrp_1h_kin_9359536f",
+            "wr": 100.0
+        },
+        "momentum": {
+            "delta": 0.0004,
+            "max_p": 0.93,
+            "win_start": 75,
+            "win_end": 28,
+            "id": "xrp_1h_mom_12364275",
+            "wr": 84.2
+        },
+        "mid_arb": {
+            "delta": 0.0003,
+            "max_p": 0.625,
+            "win_start": 1680,
+            "win_end": 180,
+            "id": "xrp_1h_arb_72d55149",
+            "wr": 62.5
+        },
+        "otm": {
+            "win_start": 52,
+            "win_end": 20,
+            "max_p": 0.06,
+            "id": "xrp_1h_otm_1771857190",
+            "wr": 100.0
+        },
+        "l2_spread_scalper": {
+            "min_spread_threshold": 0.0275,
+            "skew_allowance": 0.0813,
+            "max_hold_sec": 12.5,
+            "id": "xrp_1h_l2scalp_a4d07886",
+            "wr": 71.1
+        },
+        "mean_reversion_obi": {
+            "obi_extreme": 0.85,
+            "neutral_band": 0.2,
+            "max_price": 0.45,
+            "max_hold_ticks": 25,
+            "tp_mult": 1.344,
+            "sl_mult": 0.5,
+            "id": "xrp_1h_obi_mr_262c2aab",
+            "wr": 15.0
+        },
+        "spread_compression": {
+            "spread_percentile": 100,
+            "vol_ratio": 2.65,
+            "median_revert_mult": 1.1,
+            "max_price": 0.975,
+            "max_hold_ticks": 8,
+            "tp_mult": 1.65,
+            "sl_mult": 0.945,
+            "id": "xrp_1h_spread_cmp_999ca93b",
+            "wr": 77.3
+        },
+        "divergence_imbalance": {
+            "obi_threshold": 0.52,
+            "divergence_gap": 0.5,
+            "max_price": 0.98,
+            "max_hold_ticks": 21,
+            "tp_mult": 1.344,
+            "sl_mult": 0.924,
+            "id": "xrp_1h_div_obi_956bb976",
+            "wr": 41.5
+        },
+        "obi_acceleration": {
+            "delta_obi": 0.27,
+            "vol_accel": 1.869,
+            "max_price": 0.467,
+            "max_hold_ticks": 12,
+            "tp_mult": 1.38,
+            "sl_mult": 0.945,
+            "id": "xrp_1h_obi_acc_d5d14062",
+            "wr": 63.4
+        },
+        "volatility_compression_breakout": {
+            "lookback_ticks": 15,
+            "compression_pct": 0.00072,
+            "vol_build_mult": 1.57,
+            "max_price": 0.85,
+            "max_hold_ticks": 26,
+            "tp_mult": 1.392,
+            "sl_mult": 0.945,
+            "id": "xrp_1h_vcb_6a3f9610",
+            "wr": 65.9
+        },
+        "absorption_pattern": {
+            "lookback_ticks": 9,
+            "price_stall_pct": 0.00066,
+            "absorption_ratio": 2.8,
+            "max_price": 0.9,
+            "max_hold_ticks": 20,
+            "tp_mult": 1.613,
+            "sl_mult": 0.5,
+            "id": "xrp_1h_absorb_e07d896e",
+            "wr": 48.8
+        },
+        "cross_market_spillover": {
+            "peer_signal": 0.15,
+            "lag_tolerance": 0.1,
+            "memory_markets": 4,
+            "max_price": 0.8,
+            "max_hold_ticks": 11,
+            "tp_mult": 1.32,
+            "sl_mult": 0.945,
+            "id": "xrp_1h_spill_1a67d76b",
+            "wr": 60.0
+        },
+        "session_based_edge": {
+            "hour_start": 6,
+            "hour_end": 23,
+            "liquidity_cutoff": 500.0,
+            "obi_extreme": 0.98,
+            "delta_obi": 0.21,
+            "max_price": 0.8,
+            "max_hold_ticks": 21,
+            "tp_mult": 1.65,
+            "sl_mult": 0.5,
+            "id": "xrp_1h_session_decb70df",
+            "wr": 57.6
+        },
+        "settlement_convergence": {
+            "enter_sec_left": 27,
+            "prob_threshold": 0.5,
+            "obi_confirm": 0.2,
+            "max_hold_ticks": 12,
+            "tp_mult": 1.62,
+            "sl_mult": 0.93,
+            "id": "xrp_1h_settle_87731520",
+            "wr": 14.3
+        },
+        "liquidity_vacuum": {
+            "min_counter_vol": 32.0,
+            "dominant_vol": 270.0,
+            "max_price": 0.517,
+            "max_hold_ticks": 18,
+            "tp_mult": 1.584,
+            "sl_mult": 0.92,
+            "id": "xrp_1h_vacuum_10b5e4b9",
+            "wr": 66.7
+        },
+        "micro_pullback_continuation": {
+            "lookback_ticks": 6,
+            "impulse_ticks": 0.03,
+            "pullback_ticks": 0.022,
+            "obi_floor": 0.195,
+            "max_price": 0.574,
+            "max_hold_ticks": 17,
+            "tp_mult": 1.32,
+            "sl_mult": 0.5,
+            "id": "xrp_1h_pullback_6322fe98",
+            "wr": 72.2
+        },
+        "synthetic_arbitrage": {
+            "arb_gap": 0.021,
+            "revert_band": 0.01,
+            "max_price": 0.85,
+            "max_hold_ticks": 6,
+            "tp_mult": 1.555,
+            "sl_mult": 0.5,
+            "id": "xrp_1h_synarb_97c9a4eb",
+            "wr": 70.7
+        }
+    },
+    {
+        "symbol": "BTC",
+        "pair": "BTCUSDT",
+        "timeframe": "1h",
+        "interval": 3600,
+        "decimals": 2,
+        "offset": 0.0,
+        "kinetic_sniper": {
+            "window_ms": 1000,
+            "trigger_pct": 0.000548,
+            "max_price": 0.505,
+            "max_slippage": 0.042,
+            "id": "btc_1h_kin_4ba259e4",
+            "wr": 89.7
+        },
+        "momentum": {
+            "delta": 7.5,
+            "max_p": 0.999,
+            "win_start": 180,
+            "win_end": 28,
+            "id": "btc_1h_mom_b2481b21",
+            "wr": 90.0
+        },
+        "mid_arb": {
+            "delta": 5.0,
+            "max_p": 0.475,
+            "win_start": 600,
+            "win_end": 90,
+            "id": "btc_1h_arb_09f4b2a3",
+            "wr": 69.2
+        },
+        "otm": {
+            "win_start": 50,
+            "win_end": 20,
+            "max_p": 0.02,
+            "wr": 50.0
+        },
+        "l2_spread_scalper": {
+            "min_spread_threshold": 0.0275,
+            "skew_allowance": 0.0688,
+            "max_hold_sec": 12.5,
+            "id": "btc_1h_l2scalp_da1b550a",
+            "wr": 60.0
+        },
+        "mean_reversion_obi": {
+            "obi_extreme": 0.756,
+            "neutral_band": 0.26,
+            "max_price": 0.495,
+            "max_hold_ticks": 23,
+            "tp_mult": 1.344,
+            "sl_mult": 0.924,
+            "id": "btc_1h_obi_mr_0019f8c3",
+            "wr": 20.0
+        },
+        "spread_compression": {
+            "spread_percentile": 99,
+            "vol_ratio": 2.46,
+            "median_revert_mult": 0.55,
+            "max_price": 0.75,
+            "max_hold_ticks": 17,
+            "tp_mult": 1.65,
+            "sl_mult": 0.5,
+            "id": "btc_1h_spread_cmp_58651a01",
+            "wr": 73.2
+        },
+        "divergence_imbalance": {
+            "obi_threshold": 0.683,
+            "divergence_gap": 0.5,
+            "max_price": 1.05,
+            "max_hold_ticks": 7,
+            "tp_mult": 1.21,
+            "sl_mult": 0.647,
+            "id": "btc_1h_div_obi_03e6bfff",
+            "wr": 28.9
+        },
+        "obi_acceleration": {
+            "delta_obi": 0.144,
+            "vol_accel": 1.438,
+            "max_price": 0.82,
+            "max_hold_ticks": 22,
+            "tp_mult": 1.242,
+            "sl_mult": 0.945,
+            "id": "btc_1h_obi_acc_045a08d5",
+            "wr": 61.0
+        },
+        "volatility_compression_breakout": {
+            "lookback_ticks": 9,
+            "compression_pct": 0.00052,
+            "vol_build_mult": 1.046,
+            "max_price": 0.51,
+            "max_hold_ticks": 18,
+            "tp_mult": 1.183,
+            "sl_mult": 0.5,
+            "id": "btc_1h_vcb_c2a086ab",
+            "wr": 61.0
+        },
+        "absorption_pattern": {
+            "lookback_ticks": 12,
+            "price_stall_pct": 0.00066,
+            "absorption_ratio": 2.2,
+            "max_price": 0.562,
+            "max_hold_ticks": 16,
+            "tp_mult": 1.344,
+            "sl_mult": 0.945,
+            "id": "btc_1h_absorb_da6997f4",
+            "wr": 41.5
+        },
+        "cross_market_spillover": {
+            "peer_signal": 0.15,
+            "lag_tolerance": 0.1,
+            "memory_markets": 4,
+            "max_price": 0.48,
+            "max_hold_ticks": 7,
+            "tp_mult": 1.452,
+            "sl_mult": 0.945,
+            "id": "btc_1h_spill_b3fcd2ac",
+            "wr": 64.3
+        },
+        "session_based_edge": {
+            "hour_start": 8,
+            "hour_end": 23,
+            "liquidity_cutoff": 450.0,
+            "obi_extreme": 0.77,
+            "delta_obi": 0.098,
+            "max_price": 0.8,
+            "max_hold_ticks": 21,
+            "tp_mult": 1.122,
+            "sl_mult": 0.945,
+            "id": "btc_1h_session_dfa15fbc",
+            "wr": 64.5
+        },
+        "settlement_convergence": {
+            "enter_sec_left": 34,
+            "prob_threshold": 0.535,
+            "obi_confirm": 0.2,
+            "max_hold_ticks": 13,
+            "tp_mult": 1.296,
+            "sl_mult": 0.93,
+            "id": "btc_1h_settle_e4e1217c",
+            "wr": 30.6
+        },
+        "liquidity_vacuum": {
+            "min_counter_vol": 56.0,
+            "dominant_vol": 180.0,
+            "max_price": 0.984,
+            "max_hold_ticks": 13,
+            "tp_mult": 1.188,
+            "sl_mult": 0.92,
+            "id": "btc_1h_vacuum_330c64a0",
+            "wr": 56.1
+        },
+        "micro_pullback_continuation": {
+            "lookback_ticks": 9,
+            "impulse_ticks": 0.042,
+            "pullback_ticks": 0.01,
+            "obi_floor": 0.105,
+            "max_price": 0.492,
+            "max_hold_ticks": 14,
+            "tp_mult": 1.188,
+            "sl_mult": 0.5,
+            "id": "btc_1h_pullback_7844be53",
+            "wr": 60.9
+        },
+        "synthetic_arbitrage": {
+            "arb_gap": 0.03,
+            "revert_band": 0.01,
+            "max_price": 0.468,
+            "max_hold_ticks": 12,
+            "tp_mult": 1.361,
+            "sl_mult": 0.5,
+            "id": "btc_1h_synarb_f73d59fb",
+            "wr": 64.3
+        }
+    },
+    {
+        "symbol": "ETH",
+        "pair": "ETHUSDT",
+        "timeframe": "1h",
+        "interval": 3600,
+        "decimals": 2,
+        "offset": 0.0,
+        "kinetic_sniper": {
+            "window_ms": 1000,
+            "trigger_pct": 0.000788,
+            "max_price": 0.505,
+            "max_slippage": 0.021,
+            "id": "eth_1h_kin_8b4e5fb4",
+            "wr": 93.8
+        },
+        "momentum": {
+            "delta": 0.9,
+            "max_p": 0.85,
+            "win_start": 60,
+            "win_end": 30,
+            "id": "eth_1h_mom_1772122595",
+            "wr": 72.7
+        },
+        "mid_arb": {
+            "delta": 0.45,
+            "max_p": 0.438,
+            "win_start": 1200,
+            "win_end": 180,
+            "id": "eth_1h_arb_0f52071b",
+            "wr": 66.7
+        },
+        "otm": {
+            "win_start": 86,
+            "win_end": 50,
+            "max_p": 0.04,
+            "id": "eth_1h_otm_1771766828",
+            "wr": 60.0
+        },
+        "l2_spread_scalper": {
+            "min_spread_threshold": 0.0275,
+            "skew_allowance": 0.0875,
+            "max_hold_sec": 6.25,
+            "id": "eth_1h_l2scalp_08a1b01e",
+            "wr": 70.0
+        },
+        "mean_reversion_obi": {
+            "obi_extreme": 0.945,
+            "neutral_band": 0.2,
+            "max_price": 0.45,
+            "max_hold_ticks": 18,
+            "tp_mult": 1.344,
+            "sl_mult": 0.5,
+            "id": "eth_1h_obi_mr_4200a0f2",
+            "wr": 23.5
+        },
+        "spread_compression": {
+            "spread_percentile": 99,
+            "vol_ratio": 2.65,
+            "median_revert_mult": 1.21,
+            "max_price": 0.675,
+            "max_hold_ticks": 16,
+            "tp_mult": 1.452,
+            "sl_mult": 0.945,
+            "id": "eth_1h_spread_cmp_f816be7f",
+            "wr": 72.5
+        },
+        "divergence_imbalance": {
+            "obi_threshold": 0.65,
+            "divergence_gap": 0.5,
+            "max_price": 0.7,
+            "max_hold_ticks": 14,
+            "tp_mult": 1.344,
+            "sl_mult": 0.924,
+            "id": "eth_1h_div_obi_87a34642",
+            "wr": 24.2
+        },
+        "obi_acceleration": {
+            "delta_obi": 0.259,
+            "vol_accel": 1.01,
+            "max_price": 0.533,
+            "max_hold_ticks": 22,
+            "tp_mult": 1.725,
+            "sl_mult": 0.5,
+            "id": "eth_1h_obi_acc_fdd06aa8",
+            "wr": 61.0
+        },
+        "volatility_compression_breakout": {
+            "lookback_ticks": 15,
+            "compression_pct": 0.00056,
+            "vol_build_mult": 1.495,
+            "max_price": 0.935,
+            "max_hold_ticks": 25,
+            "tp_mult": 1.392,
+            "sl_mult": 0.945,
+            "id": "eth_1h_vcb_d07c5629",
+            "wr": 55.0
+        },
+        "absorption_pattern": {
+            "lookback_ticks": 8,
+            "price_stall_pct": 0.0006,
+            "absorption_ratio": 2.0,
+            "max_price": 0.75,
+            "max_hold_ticks": 16,
+            "tp_mult": 1.344,
+            "sl_mult": 0.945,
+            "id": "eth_1h_absorb_d9004dd1",
+            "wr": 22.0
+        },
+        "cross_market_spillover": {
+            "peer_signal": 0.3,
+            "lag_tolerance": 0.05,
+            "memory_markets": 3,
+            "max_price": 1.04,
+            "max_hold_ticks": 11,
+            "tp_mult": 1.188,
+            "sl_mult": 0.945,
+            "id": "eth_1h_spill_f5c2a6f8",
+            "wr": 77.8
+        },
+        "session_based_edge": {
+            "hour_start": 7,
+            "hour_end": 20,
+            "liquidity_cutoff": 650.0,
+            "obi_extreme": 0.7,
+            "delta_obi": 0.168,
+            "max_price": 0.64,
+            "max_hold_ticks": 15,
+            "tp_mult": 1.584,
+            "sl_mult": 0.945,
+            "id": "eth_1h_session_8181f3e5",
+            "wr": 68.0
+        },
+        "settlement_convergence": {
+            "enter_sec_left": 65,
+            "prob_threshold": 0.714,
+            "obi_confirm": 0.125,
+            "max_hold_ticks": 16,
+            "tp_mult": 1.296,
+            "sl_mult": 0.93,
+            "id": "eth_1h_settle_212738df",
+            "wr": 32.4
+        },
+        "liquidity_vacuum": {
+            "min_counter_vol": 26.0,
+            "dominant_vol": 90.0,
+            "max_price": 0.492,
+            "max_hold_ticks": 11,
+            "tp_mult": 1.32,
+            "sl_mult": 0.92,
+            "id": "eth_1h_vacuum_8e59f417",
+            "wr": 65.9
+        },
+        "micro_pullback_continuation": {
+            "lookback_ticks": 4,
+            "impulse_ticks": 0.06,
+            "pullback_ticks": 0.02,
+            "obi_floor": 0.15,
+            "max_price": 0.738,
+            "max_hold_ticks": 17,
+            "tp_mult": 1.452,
+            "sl_mult": 0.5,
+            "id": "eth_1h_pullback_e7c21841",
+            "wr": 80.0
+        },
+        "synthetic_arbitrage": {
+            "arb_gap": 0.033,
+            "revert_band": 0.01,
+            "max_price": 0.85,
+            "max_hold_ticks": 10,
+            "tp_mult": 1.555,
+            "sl_mult": 0.5,
+            "id": "eth_1h_synarb_7ffd4114",
+            "wr": 70.6
+        }
+    },
+    {
+        "symbol": "SOL",
+        "pair": "SOLUSDT",
+        "timeframe": "1h",
+        "interval": 3600,
+        "decimals": 3,
+        "offset": 0.0,
+        "kinetic_sniper": {
+            "window_ms": 1000,
+            "trigger_pct": 0.0011,
+            "max_price": 0.65,
+            "max_slippage": 0.035,
+            "id": "sol_1h_kin_7dcb1fc4",
+            "wr": 69.2
+        },
+        "momentum": {
+            "delta": 0.025,
+            "max_p": 0.999,
+            "win_start": 126,
+            "win_end": 28,
+            "id": "sol_1h_mom_45ed9463",
+            "wr": 95.0
+        },
+        "mid_arb": {
+            "delta": 0.022,
+            "max_p": 0.625,
+            "win_start": 600,
+            "win_end": 180,
+            "id": "sol_1h_arb_3ebbffb8",
+            "wr": 70.8
+        },
+        "otm": {
+            "win_start": 50,
+            "win_end": 20,
+            "max_p": 0.04,
+            "id": "sol_1h_otm_1772122744",
+            "wr": 100.0
+        },
+        "l2_spread_scalper": {
+            "min_spread_threshold": 0.0275,
+            "skew_allowance": 0.075,
+            "max_hold_sec": 12.5,
+            "id": "sol_1h_l2scalp_05c42169",
+            "wr": 56.7
+        },
+        "mean_reversion_obi": {
+            "obi_extreme": 0.803,
+            "neutral_band": 0.21,
+            "max_price": 0.585,
+            "max_hold_ticks": 22,
+            "tp_mult": 1.344,
+            "sl_mult": 1.016,
+            "id": "sol_1h_obi_mr_f839150e",
+            "wr": 10.0
+        },
+        "spread_compression": {
+            "spread_percentile": 100,
+            "vol_ratio": 1.05,
+            "median_revert_mult": 0.55,
+            "max_price": 0.9,
+            "max_hold_ticks": 24,
+            "tp_mult": 1.452,
+            "sl_mult": 0.945,
+            "id": "sol_1h_spread_cmp_879a67a5",
+            "wr": 64.1
+        },
+        "divergence_imbalance": {
+            "obi_threshold": 0.747,
+            "divergence_gap": 0.5,
+            "max_price": 0.735,
+            "max_hold_ticks": 21,
+            "tp_mult": 1.344,
+            "sl_mult": 1.016,
+            "id": "sol_1h_div_obi_d17bd872",
+            "wr": 2.9
+        },
+        "obi_acceleration": {
+            "delta_obi": 0.144,
+            "vol_accel": 1.15,
+            "max_price": 0.738,
+            "max_hold_ticks": 21,
+            "tp_mult": 1.656,
+            "sl_mult": 0.5,
+            "id": "sol_1h_obi_acc_2a9ab9ff",
+            "wr": 56.1
+        },
+        "volatility_compression_breakout": {
+            "lookback_ticks": 14,
+            "compression_pct": 0.00088,
+            "vol_build_mult": 1.495,
+            "max_price": 0.51,
+            "max_hold_ticks": 16,
+            "tp_mult": 1.531,
+            "sl_mult": 0.5,
+            "id": "sol_1h_vcb_c646f474",
+            "wr": 63.4
+        },
+        "absorption_pattern": {
+            "lookback_ticks": 8,
+            "price_stall_pct": 0.0006,
+            "absorption_ratio": 2.0,
+            "max_price": 0.75,
+            "max_hold_ticks": 16,
+            "tp_mult": 1.344,
+            "sl_mult": 0.945,
+            "id": "sol_1h_absorb_817ea7f7",
+            "wr": 24.4
+        },
+        "cross_market_spillover": {
+            "peer_signal": 0.195,
+            "lag_tolerance": 0.1,
+            "memory_markets": 3,
+            "max_price": 0.48,
+            "max_hold_ticks": 18,
+            "tp_mult": 1.32,
+            "sl_mult": 0.5,
+            "id": "sol_1h_spill_5b62d6e1",
+            "wr": 68.8
+        },
+        "session_based_edge": {
+            "hour_start": 7,
+            "hour_end": 20,
+            "liquidity_cutoff": 500.0,
+            "obi_extreme": 0.84,
+            "delta_obi": 0.112,
+            "max_price": 0.68,
+            "max_hold_ticks": 18,
+            "tp_mult": 1.584,
+            "sl_mult": 0.5,
+            "id": "sol_1h_session_41f4ac4e",
+            "wr": 68.0
+        },
+        "settlement_convergence": {
+            "enter_sec_left": 30,
+            "prob_threshold": 0.803,
+            "obi_confirm": 0.125,
+            "max_hold_ticks": 15,
+            "tp_mult": 1.296,
+            "sl_mult": 0.93,
+            "id": "sol_1h_settle_0f840a10",
+            "wr": 24.1
+        },
+        "liquidity_vacuum": {
+            "min_counter_vol": 20.0,
+            "dominant_vol": 270.0,
+            "max_price": 0.41,
+            "max_hold_ticks": 18,
+            "tp_mult": 1.584,
+            "sl_mult": 0.736,
+            "id": "sol_1h_vacuum_656d8a47",
+            "wr": 60.5
+        },
+        "micro_pullback_continuation": {
+            "lookback_ticks": 7,
+            "impulse_ticks": 0.06,
+            "pullback_ticks": 0.012,
+            "obi_floor": 0.105,
+            "max_price": 0.82,
+            "max_hold_ticks": 18,
+            "tp_mult": 1.584,
+            "sl_mult": 0.5,
+            "id": "sol_1h_pullback_bbd1307e",
+            "wr": 66.7
+        },
+        "synthetic_arbitrage": {
+            "arb_gap": 0.042,
+            "revert_band": 0.011,
+            "max_price": 0.85,
+            "max_hold_ticks": 10,
+            "tp_mult": 1.296,
+            "sl_mult": 0.94,
+            "id": "sol_1h_synarb_da5a358a",
+            "wr": 90.5
         }
     }
 ]

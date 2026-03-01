@@ -24,6 +24,7 @@ from backtester import (
     jitter_values,
     load_and_prepare_data,
     prepare_fast_markets,
+    refresh_tracked_configs_from_history,
     save_optimization_result,
     select_optimal_result,
     validate_market_rules,
@@ -91,6 +92,18 @@ def normalize_mode(value: str | None) -> str:
     return "full"
 
 
+def normalize_adaptive(value: object) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    return bool(value)
+
+
+def format_mode_label(mode: str, adaptive: bool = False) -> str:
+    return f"{mode} + adaptive" if adaptive else mode
+
+
 def market_sort_key(market_key: str) -> tuple[int, int, str]:
     symbol, timeframe = market_key.split("_", 1)
     return (TIMEFRAME_ORDER.get(timeframe, 99), SYMBOL_ORDER.get(symbol, 99), market_key)
@@ -145,6 +158,57 @@ def build_seed(*parts: object) -> str:
     return "::".join(str(part) for part in parts)
 
 
+def infer_axis_metadata(param_axes: dict[str, list]) -> dict[str, dict]:
+    metadata: dict[str, dict] = {}
+    for name, axis in param_axes.items():
+        values = sorted(dict.fromkeys(axis))
+        if not values:
+            continue
+        center_index = len(values) // 2
+        precision = 0
+        for value in values:
+            if isinstance(value, float):
+                rendered = f"{value:.12f}".rstrip("0").rstrip(".")
+                if "." in rendered:
+                    precision = max(precision, len(rendered.split(".", 1)[1]))
+        metadata[name] = {
+            "name": name,
+            "base_value": values[center_index],
+            "min_value": values[0],
+            "max_value": values[-1],
+            "integer": all(isinstance(value, int) and not isinstance(value, bool) for value in values),
+            "precision": precision,
+        }
+    return metadata
+
+
+def quantize_adaptive_value(meta: dict, pct_offset: float) -> int | float:
+    base_value = meta["base_value"]
+    raw_value = base_value * (1.0 + (pct_offset / 100.0))
+    clipped = min(meta["max_value"], max(meta["min_value"], raw_value))
+    if meta["integer"]:
+        return int(round(clipped))
+    return round(float(clipped), meta["precision"])
+
+
+def estimate_adaptive_sample_count(param_axes: dict[str, list]) -> int:
+    if not param_axes:
+        return 0
+    return 1 + (len(param_axes) * 19)
+
+
+def adaptive_sampling_note(param_axes: dict[str, list], mode: str) -> str:
+    upper_bound = estimate_adaptive_sample_count(param_axes)
+    mode_note = "Quick zachowuje się tu tak samo jak Full, bo siatka adaptacyjna jest mała i deterministyczna."
+    if mode == "fast-track":
+        mode_note = "Tryb adaptive nie jest używany w fast-track."
+    return (
+        "Adaptive grid: start od punktu bazowego, potem dla każdego parametru etap 1 (-50%..+50% co 10%), "
+        "etap 2 (+/-5% wokół najlepszego kandydata) i etap 3 (+/-2% co 1%) tylko po poprawie wyniku. "
+        f"Górny limit próbek dla tego testu: {upper_bound}. {mode_note}"
+    )
+
+
 def build_combinations(
     param_axes: dict[str, list],
     sample_target: int,
@@ -189,6 +253,7 @@ def build_sampling_plan(
     symbol: str,
     timeframe: str,
     mode: str,
+    adaptive: bool = False,
     sample_override: int | None = None,
     seed: str = "catalog",
     include_combinations: bool = False,
@@ -203,6 +268,25 @@ def build_sampling_plan(
 
     param_axes = spec["param_builder"](symbol, timeframe)
     raw_total = product_size(param_axes)
+    adaptive_meta = infer_axis_metadata(param_axes)
+    if adaptive:
+        adaptive_count = estimate_adaptive_sample_count(param_axes)
+        return {
+            "enabled": True,
+            "strategy_key": strategy_key,
+            "strategy_label": spec["label"],
+            "summary": spec["summary"],
+            "parameters": build_parameter_rows(param_axes),
+            "raw_total_combinations": raw_total,
+            "filtered_total_combinations": None,
+            "sample_target": adaptive_count,
+            "effective_sample_count": adaptive_count,
+            "sampling_reason": "adaptive_grid",
+            "sampling_note": adaptive_sampling_note(param_axes, mode),
+            "param_axes": param_axes if include_combinations else None,
+            "adaptive_meta": adaptive_meta if include_combinations else None,
+            "combinations": None,
+        }
     if sample_override is not None:
         sample_target = max(1, min(raw_total, int(sample_override)))
         sampling_reason = "manual_override" if sample_target < raw_total else None
@@ -242,6 +326,7 @@ def build_sampling_plan(
         "sampling_reason": sampling_reason,
         "sampling_note": sampling_note,
         "param_axes": param_axes if include_combinations else None,
+        "adaptive_meta": adaptive_meta if include_combinations else None,
         "combinations": combinations if include_combinations else None,
     }
 
@@ -310,12 +395,14 @@ def load_available_markets(scope: str) -> dict:
 def build_catalog(
     scope: str = "latest_session",
     mode: str = "full",
+    adaptive: bool = False,
     selected_markets: list[str] | None = None,
     selected_strategies: list[str] | None = None,
     manual_samples: dict[str, int] | None = None,
 ) -> dict:
     scope = normalize_scope(scope)
     mode = normalize_mode(mode)
+    adaptive = normalize_adaptive(adaptive) and mode != "fast-track"
     availability = load_available_markets(scope)
     market_map = availability["market_map"]
     markets = availability["markets"]
@@ -345,8 +432,9 @@ def build_catalog(
                 symbol,
                 timeframe,
                 mode,
+                adaptive=adaptive,
                 sample_override=sample_override,
-                seed=build_seed("catalog", market_key, strategy_key, sample_override or "auto", mode),
+                seed=build_seed("catalog", market_key, strategy_key, sample_override or "auto", mode, "adaptive" if adaptive else "classic"),
                 include_combinations=False,
             )
             if not detail["enabled"]:
@@ -363,6 +451,7 @@ def build_catalog(
                     "timeframe": timeframe,
                     "strategy_key": strategy_key,
                     "strategy_label": detail["strategy_label"],
+                    "adaptive": adaptive,
                     "summary": detail["summary"],
                     "ticks_count": ticks_count,
                     "market_instances": market_info["market_instances"],
@@ -380,6 +469,8 @@ def build_catalog(
     return {
         "scope": scope,
         "mode": mode,
+        "adaptive": adaptive,
+        "mode_label": format_mode_label(mode, adaptive),
         "session_id": availability["session_id"],
         "available_markets": markets,
         "available_strategies": [
@@ -476,7 +567,7 @@ def create_run_record(run_id: str, plan: dict) -> None:
                 None,
                 "running",
                 plan["scope"],
-                plan["mode"],
+                format_mode_label(plan["mode"], plan.get("adaptive", False)),
                 plan.get("session_id"),
                 json.dumps(plan["selected_markets"]),
                 json.dumps(plan["selected_strategies"]),
@@ -668,6 +759,7 @@ def build_idle_state() -> dict:
     return {
         "status": "idle",
         "generated_at": utc_now_iso(),
+        "adaptive": False,
         "progress": {
             "current_test_index": 0,
             "total_tests": 0,
@@ -692,6 +784,7 @@ def read_state() -> dict:
     if not LATEST_STATE_PATH.exists():
         return build_idle_state()
     payload = json.loads(LATEST_STATE_PATH.read_text(encoding="utf-8"))
+    payload.setdefault("adaptive", False)
     payload.setdefault("results", get_last_run_summary())
     return payload
 
@@ -710,6 +803,7 @@ class RuntimeState:
             "finished_at": None,
             "scope": plan["scope"],
             "mode": plan["mode"],
+            "adaptive": plan.get("adaptive", False),
             "session_id": plan.get("session_id"),
             "selected_markets": plan["selected_markets"],
             "selected_strategies": plan["selected_strategies"],
@@ -820,6 +914,7 @@ class RuntimeState:
 def build_runtime_plan(job: dict) -> tuple[dict, dict]:
     scope = normalize_scope(job.get("scope"))
     mode = normalize_mode(job.get("mode"))
+    adaptive = normalize_adaptive(job.get("adaptive")) and mode != "fast-track"
     selected_markets = job.get("selected_markets") or []
     selected_strategies = job.get("selected_strategies") or list(STRATEGY_SPECS.keys())
     manual_samples = job.get("manual_samples") or {}
@@ -827,6 +922,7 @@ def build_runtime_plan(job: dict) -> tuple[dict, dict]:
     catalog = build_catalog(
         scope=scope,
         mode=mode,
+        adaptive=adaptive,
         selected_markets=selected_markets,
         selected_strategies=selected_strategies,
         manual_samples=manual_samples,
@@ -837,6 +933,7 @@ def build_runtime_plan(job: dict) -> tuple[dict, dict]:
             "run_id": job["run_id"],
             "scope": scope,
             "mode": mode,
+            "adaptive": False,
             "session_id": catalog["session_id"],
             "selected_markets": catalog["selected_markets"],
             "selected_strategies": catalog["selected_strategies"],
@@ -878,21 +975,23 @@ def build_runtime_plan(job: dict) -> tuple[dict, dict]:
             detail["symbol"],
             detail["timeframe"],
             mode,
+            adaptive=adaptive,
             sample_override=sample_override,
-            seed=build_seed(job["run_id"], detail["combo_key"], sample_override or "auto", mode),
+            seed=build_seed(job["run_id"], detail["combo_key"], sample_override or "auto", mode, "adaptive" if adaptive else "classic"),
             include_combinations=True,
         )
-        combinations = sampling.get("combinations") or []
-        sampled_count = len(combinations)
-        if sampled_count <= 0:
-            continue
         ticks_count = len(df_interval)
+        sampled_count = sampling["effective_sample_count"]
+        combinations = sampling.get("combinations") or []
+        if not adaptive and sampled_count <= 0:
+            continue
         estimated_operations = sampled_count * ticks_count
         total_grid_points += sampled_count
         total_operations += estimated_operations
 
         runtime_detail = {
             **detail,
+            "adaptive": adaptive,
             "effective_sample_count": sampled_count,
             "raw_total_combinations": sampling["raw_total_combinations"],
             "filtered_total_combinations": sampling["filtered_total_combinations"],
@@ -910,8 +1009,11 @@ def build_runtime_plan(job: dict) -> tuple[dict, dict]:
                 "timeframe": detail["timeframe"],
                 "strategy_key": detail["strategy_key"],
                 "strategy_label": detail["strategy_label"],
+                "adaptive": adaptive,
                 "df_markets": df_interval,
                 "combinations": combinations,
+                "param_axes": sampling.get("param_axes"),
+                "adaptive_meta": sampling.get("adaptive_meta"),
                 "sampled_count": sampled_count,
                 "total_param_combinations": sampling["raw_total_combinations"],
                 "ticks_count": ticks_count,
@@ -925,6 +1027,7 @@ def build_runtime_plan(job: dict) -> tuple[dict, dict]:
         "run_id": job["run_id"],
         "scope": scope,
         "mode": mode,
+        "adaptive": adaptive,
         "session_id": catalog["session_id"],
         "selected_markets": catalog["selected_markets"],
         "selected_strategies": catalog["selected_strategies"],
@@ -960,6 +1063,152 @@ def execute_worker_with_progress(worker_func, combinations: list[dict], fast_mar
     return results
 
 
+def serialize_params(params: dict) -> str:
+    return json.dumps(params, sort_keys=True, separators=(",", ":"))
+
+
+def placeholder_result(params: dict) -> dict:
+    return {
+        "p": dict(params),
+        "pnl": 0.0,
+        "pnl_proc": 0.0,
+        "wr": 0.0,
+        "t": 0,
+        "score": 0.0,
+    }
+
+
+def choose_best_result(candidates: list[dict]) -> dict | None:
+    if not candidates:
+        return None
+    selected = select_optimal_result([dict(item) for item in candidates])
+    if selected is None:
+        return None
+    for candidate in candidates:
+        if serialize_params(candidate["p"]) == serialize_params(selected["p"]):
+            return candidate
+    return selected
+
+
+def build_adaptive_candidates(current_params: dict, meta: dict, pct_offsets: list[int]) -> list[tuple[dict, int]]:
+    candidates: list[tuple[dict, int]] = []
+    seen: set[str] = set()
+    for pct_offset in pct_offsets:
+        value = quantize_adaptive_value(meta, pct_offset)
+        params = dict(current_params)
+        params[meta["name"]] = value
+        key = serialize_params(params)
+        if key in seen:
+            continue
+        seen.add(key)
+        candidates.append((params, pct_offset))
+    return candidates
+
+
+def evaluate_candidate_batch(
+    worker_func,
+    fast_markets: list[dict],
+    candidates: list[tuple[dict, int]],
+    progress_callback,
+) -> tuple[list[dict], dict[str, int]]:
+    combinations = [params for params, _ in candidates]
+    raw_results = execute_worker_with_progress(
+        worker_func,
+        combinations,
+        fast_markets,
+        progress_callback=progress_callback,
+    )
+    results_by_key = {serialize_params(result["p"]): result for result in raw_results}
+    evaluated: list[dict] = []
+    pct_by_key: dict[str, int] = {}
+    for params, pct_offset in candidates:
+        key = serialize_params(params)
+        pct_by_key[key] = pct_offset
+        evaluated.append(results_by_key.get(key, placeholder_result(params)))
+    return evaluated, pct_by_key
+
+
+def run_adaptive_strategy(
+    entry: dict,
+    fast_markets: list[dict],
+    update_progress,
+    log_progress,
+) -> tuple[dict | None, int]:
+    adaptive_meta = entry.get("adaptive_meta") or {}
+    if not adaptive_meta:
+        return None, 0
+
+    ordered_meta = [adaptive_meta[name] for name in entry["param_axes"].keys() if name in adaptive_meta]
+    current_params = {meta["name"]: meta["base_value"] for meta in ordered_meta}
+    current_best = placeholder_result(current_params)
+    points_done = 0
+
+    def run_stage(candidates: list[tuple[dict, int]], stage_label: str) -> tuple[list[dict], dict[str, int]]:
+        nonlocal points_done
+        if not candidates:
+            return [], {}
+
+        def on_stage_progress(done_points: int, _total_points: int) -> None:
+            update_progress(points_done + done_points, stage_label)
+
+        evaluated, pct_by_key = evaluate_candidate_batch(
+            entry["worker"],
+            fast_markets,
+            candidates,
+            on_stage_progress,
+        )
+        points_done += len(candidates)
+        update_progress(points_done, stage_label)
+        return evaluated, pct_by_key
+
+    base_results, _ = run_stage([(current_params, 0)], "Adaptive baseline")
+    if base_results:
+        current_best = base_results[0]
+
+    for meta in ordered_meta:
+        param_name = meta["name"]
+        stage1_results, stage1_pct_map = run_stage(
+            build_adaptive_candidates(current_best["p"], meta, list(range(-50, 51, 10))),
+            f"Adaptive stage 1 · {param_name}",
+        )
+        stage1_best = choose_best_result([current_best, *stage1_results])
+        if stage1_best is None or serialize_params(stage1_best["p"]) == serialize_params(current_best["p"]):
+            continue
+
+        best_stage1_pct = stage1_pct_map.get(serialize_params(stage1_best["p"]), 0)
+        log_progress(f"Adaptive: {entry['market_label']} / {entry['strategy_label']} | {param_name} etap 1 -> {best_stage1_pct:+d}%")
+        current_best = stage1_best
+
+        stage2_results, stage2_pct_map = run_stage(
+            build_adaptive_candidates(current_best["p"], meta, [best_stage1_pct - 5, best_stage1_pct, best_stage1_pct + 5]),
+            f"Adaptive stage 2 · {param_name}",
+        )
+        stage2_best = choose_best_result([current_best, *stage2_results])
+        if stage2_best is None or serialize_params(stage2_best["p"]) == serialize_params(current_best["p"]):
+            continue
+
+        best_stage2_pct = stage2_pct_map.get(serialize_params(stage2_best["p"]), best_stage1_pct)
+        log_progress(f"Adaptive: {entry['market_label']} / {entry['strategy_label']} | {param_name} etap 2 -> {best_stage2_pct:+d}%")
+        current_best = stage2_best
+
+        stage3_results, stage3_pct_map = run_stage(
+            build_adaptive_candidates(
+                current_best["p"],
+                meta,
+                [best_stage2_pct - 2, best_stage2_pct - 1, best_stage2_pct, best_stage2_pct + 1, best_stage2_pct + 2],
+            ),
+            f"Adaptive stage 3 · {param_name}",
+        )
+        stage3_best = choose_best_result([current_best, *stage3_results])
+        if stage3_best is not None and serialize_params(stage3_best["p"]) != serialize_params(current_best["p"]):
+            best_stage3_pct = stage3_pct_map.get(serialize_params(stage3_best["p"]), best_stage2_pct)
+            log_progress(f"Adaptive: {entry['market_label']} / {entry['strategy_label']} | {param_name} etap 3 -> {best_stage3_pct:+d}%")
+            current_best = stage3_best
+
+    selected = current_best if current_best.get("t", 0) > 0 else None
+    return selected, points_done
+
+
 def run_single_strategy(entry: dict, progress_state: RuntimeState, current_test_index: int, total_tests: int, completed_operations_before: int) -> tuple[dict | None, int]:
     fast_markets = prepare_fast_markets(entry["df_markets"])
     current_processed = completed_operations_before
@@ -978,7 +1227,24 @@ def run_single_strategy(entry: dict, progress_state: RuntimeState, current_test_
             processed_operations=current_processed,
         )
 
-    progress_state.log(f"Start {entry['market_label']} / {entry['strategy_label']} | próbek: {entry['sampled_count']}")
+    def update_adaptive_progress(done_points: int, stage_label: str) -> None:
+        nonlocal current_processed
+        current_processed = completed_operations_before + (done_points * entry["ticks_count"])
+        progress_state.update_progress(
+            current_test_index=current_test_index,
+            total_tests=total_tests,
+            current_test_label=stage_label,
+            current_test_market=entry["market_label"],
+            current_test_strategy=entry["strategy_label"],
+            current_test_points_done=done_points,
+            current_test_points_total=entry["sampled_count"],
+            processed_operations=current_processed,
+        )
+
+    progress_state.log(
+        f"Start {entry['market_label']} / {entry['strategy_label']} | "
+        f"{'adaptive' if entry.get('adaptive') else 'próbek'}: {entry['sampled_count']}"
+    )
     progress_state.update_progress(
         current_test_index=current_test_index,
         total_tests=total_tests,
@@ -991,17 +1257,27 @@ def run_single_strategy(entry: dict, progress_state: RuntimeState, current_test_
     )
 
     try:
-        best_results = execute_worker_with_progress(
-            entry["worker"],
-            entry["combinations"],
-            fast_markets,
-            progress_callback=on_progress,
-        )
+        if entry.get("adaptive"):
+            best_result, sampled_points = run_adaptive_strategy(
+                entry,
+                fast_markets,
+                update_adaptive_progress,
+                progress_state.log,
+            )
+            entry["sampled_count"] = sampled_points
+            entry["estimated_operations"] = sampled_points * entry["ticks_count"]
+        else:
+            best_results = execute_worker_with_progress(
+                entry["worker"],
+                entry["combinations"],
+                fast_markets,
+                progress_callback=on_progress,
+            )
+            best_result = select_optimal_result(best_results)
     except Exception as exc:
         create_crash_dump(entry["strategy_key"], entry["symbol"], entry["timeframe"], exc)
         raise
 
-    best_result = select_optimal_result(best_results)
     if best_result:
         best_result["p"]["id"] = f"{entry['symbol'].lower()}_{entry['timeframe']}_{entry['id_prefix']}_{uuid.uuid4().hex[:8]}"
     progress_state.update_progress(
@@ -1038,6 +1314,8 @@ def result_payload(entry: dict, best_result: dict) -> dict:
 
 def run_fast_track_job(plan: dict, progress_state: RuntimeState) -> tuple[list[dict], dict | None]:
     progress_state.log("Tryb fast-track: brak pełnego backtestu, pobieram najlepsze historyczne konfiguracje.")
+    refresh_tracked_configs_from_history(db_path=str(BACKTEST_HISTORY_PATH), config_file="tracked_configs.json")
+    progress_state.log("tracked_configs.json zaktualizowany z bazy historii.")
     historical_top = get_historical_top3()
     selected = [
         item
@@ -1140,6 +1418,8 @@ def run_job(job: dict) -> None:
         )
 
     elapsed_sec = time.time() - start_ts
+    refresh_tracked_configs_from_history(db_path=str(BACKTEST_HISTORY_PATH), config_file="tracked_configs.json")
+    progress_state.log("tracked_configs.json zaktualizowany po zakończeniu backtestu.")
     finish_run_record(job["run_id"], "completed", elapsed_sec, plan["summary"], best_of_run)
     progress_state.complete("completed", best_of_run, progress_state.state["results"]["completed_results"])
 
@@ -1150,6 +1430,7 @@ def build_job_payload(payload: dict | None = None) -> dict:
         "run_id": payload.get("run_id") or uuid.uuid4().hex,
         "scope": normalize_scope(payload.get("scope")),
         "mode": normalize_mode(payload.get("mode")),
+        "adaptive": normalize_adaptive(payload.get("adaptive")),
         "selected_markets": payload.get("selected_markets") or [],
         "selected_strategies": payload.get("selected_strategies") or list(STRATEGY_SPECS.keys()),
         "manual_samples": payload.get("manual_samples") or {},
