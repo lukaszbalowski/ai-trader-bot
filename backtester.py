@@ -15,6 +15,8 @@ import builtins
 from datetime import datetime
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
+from backtester_exit_log import append_backtester_exit_log
+
 PARAM_JITTER_MIN_PCT = -0.50
 PARAM_JITTER_MAX_PCT = 0.50
 PARAM_JITTER_STEP_PCT = 0.05
@@ -629,7 +631,10 @@ def execute_with_progress(worker_func, combinations, fast_markets, num_cores):
         completed = 0
         last_printed_pct = 0
         for f in as_completed(futures):
-            best_results.extend(f.result())
+            chunk_results = f.result()
+            best_chunk = select_optimal_result(chunk_results)
+            if best_chunk is not None:
+                best_results.append(best_chunk)
             completed += 1
             pct = int((completed / total_chunks) * 100)
             if pct - last_printed_pct >= 10 or completed == total_chunks:
@@ -1832,58 +1837,104 @@ def build_strategy_test_plan(unique_markets):
             plan.append((market, symbol, interval, strategy_name, strategy_func))
     return plan
 
+
+def append_cli_exit_log(status, reason, args=None, error=None, extra=None):
+    append_backtester_exit_log(
+        source="cli",
+        status=status,
+        reason=reason,
+        scope="all" if getattr(args, "all_history", False) else "latest_session",
+        mode="fast-track" if getattr(args, "fast_track", False) else ("quick" if getattr(args, "quick", False) else "full"),
+        adaptive=False,
+        summary={
+            "timeframe": getattr(args, "timeframe", None),
+            "terminal_log_lines": len(TERMINAL_LOG_BUFFER),
+        },
+        error=error,
+        extra=extra,
+    )
+
 if __name__ == "__main__":
     import multiprocessing
     multiprocessing.freeze_support()
 
-    args = parse_cli_args()
-    QUICK_MODE = args.quick
+    args = None
+    exit_status = "completed"
+    exit_reason = "run_completed"
+    exit_error = None
+    exit_extra = None
 
-    init_history_db()
+    try:
+        args = parse_cli_args()
+        QUICK_MODE = args.quick
 
-    if args.fast_track:
-        optimizations = compile_best_from_vault()
-        generate_tracked_configs_output(optimizations)
-    else:
-        if args.quick:
-            print("⚡ Quick mode aktywny: duże siatki parametrów będą próbkowane w trybie przyspieszonym.")
-        if args.timeframe:
-            print(f"🎯 Filtr interwału aktywny: testuję wyłącznie rynki {args.timeframe}.")
-        run_post_mortem_analysis(all_history=args.all_history)
-        print("\n⏳ Wczytywanie bazy danych SQLite i formatowanie macierzy Numpy dla HYPER-DENSE GRID SEARCH...")
-        time_s = time.time()
-        historical_data = load_and_prepare_data(all_history=args.all_history)
-        print(f"✅ Pomyślnie wektoryzowano dane L2 w {time.time()-time_s:.2f} sekund.")
-        
-        if historical_data.empty:
-            print("Nie znaleziono w logach arkusza zleceń żadnych zdarzeń rynkowych nadających się do optymalizacji.")
-        else:
-            if args.timeframe:
-                historical_data = historical_data[historical_data['interval_label'] == args.timeframe].copy()
-                if historical_data.empty:
-                    print(f"Brak danych historycznych dla wybranego interwału {args.timeframe}.")
-                    save_terminal_summary_txt()
-                    raise SystemExit(0)
-            unique_markets = historical_data['timeframe'].unique()
-            test_plan = build_strategy_test_plan(unique_markets)
-            total_tests = len(test_plan)
-            test_counter = 0
-            optimizations = {}
-            for market in unique_markets:
-                if "_" not in market: continue
-                symbol, interval = market.split('_')
-                df_interval = historical_data[historical_data['timeframe'] == market].copy()
-                if df_interval.empty: continue
-                
-                optimizations[market] = {}
-                market_tests = [item for item in test_plan if item[0] == market]
-                for _, _, _, strategy_name, strategy_func in market_tests:
-                    test_counter += 1
-                    print(f"\n📍 Test {test_counter} z {total_tests} | {symbol} {interval} | {strategy_name}")
-                    best_result = strategy_func(df_interval, symbol, interval)
-                    if best_result:
-                        save_optimization_result(symbol, interval, strategy_name, best_result)
-                        optimizations[market][strategy_name] = best_result['p']
-                        optimizations[market][strategy_name]['wr'] = round(best_result['wr'], 1)
-                    
+        init_history_db()
+
+        if args.fast_track:
+            optimizations = compile_best_from_vault()
             generate_tracked_configs_output(optimizations)
+        else:
+            if args.quick:
+                print("⚡ Quick mode aktywny: duże siatki parametrów będą próbkowane w trybie przyspieszonym.")
+            if args.timeframe:
+                print(f"🎯 Filtr interwału aktywny: testuję wyłącznie rynki {args.timeframe}.")
+            run_post_mortem_analysis(all_history=args.all_history)
+            print("\n⏳ Wczytywanie bazy danych SQLite i formatowanie macierzy Numpy dla HYPER-DENSE GRID SEARCH...")
+            time_s = time.time()
+            historical_data = load_and_prepare_data(all_history=args.all_history)
+            print(f"✅ Pomyślnie wektoryzowano dane L2 w {time.time()-time_s:.2f} sekund.")
+            
+            if historical_data.empty:
+                print("Nie znaleziono w logach arkusza zleceń żadnych zdarzeń rynkowych nadających się do optymalizacji.")
+            else:
+                if args.timeframe:
+                    historical_data = historical_data[historical_data['interval_label'] == args.timeframe].copy()
+                    if historical_data.empty:
+                        print(f"Brak danych historycznych dla wybranego interwału {args.timeframe}.")
+                        save_terminal_summary_txt()
+                        exit_reason = "no_data_for_selected_timeframe"
+                        raise SystemExit(0)
+                unique_markets = historical_data['timeframe'].unique()
+                test_plan = build_strategy_test_plan(unique_markets)
+                total_tests = len(test_plan)
+                test_counter = 0
+                optimizations = {}
+                for market in unique_markets:
+                    if "_" not in market:
+                        continue
+                    symbol, interval = market.split('_')
+                    df_interval = historical_data[historical_data['timeframe'] == market].copy()
+                    if df_interval.empty:
+                        continue
+                    
+                    optimizations[market] = {}
+                    market_tests = [item for item in test_plan if item[0] == market]
+                    for _, _, _, strategy_name, strategy_func in market_tests:
+                        test_counter += 1
+                        print(f"\n📍 Test {test_counter} z {total_tests} | {symbol} {interval} | {strategy_name}")
+                        best_result = strategy_func(df_interval, symbol, interval)
+                        if best_result:
+                            save_optimization_result(symbol, interval, strategy_name, best_result)
+                            optimizations[market][strategy_name] = best_result['p']
+                            optimizations[market][strategy_name]['wr'] = round(best_result['wr'], 1)
+                        
+                generate_tracked_configs_output(optimizations)
+    except KeyboardInterrupt:
+        exit_status = "stopped"
+        exit_reason = "keyboard_interrupt"
+        exit_error = "KeyboardInterrupt"
+        raise
+    except SystemExit as exc:
+        if exc.code not in (0, None):
+            exit_status = "failed"
+            exit_reason = "system_exit_error"
+            exit_error = f"SystemExit({exc.code})"
+        raise
+    except Exception as exc:
+        exit_status = "failed"
+        exit_reason = "cli_exception"
+        exit_error = str(exc)
+        exit_extra = {"exception_type": type(exc).__name__}
+        raise
+    finally:
+        append_cli_exit_log(exit_status, exit_reason, args=args, error=exit_error, extra=exit_extra)

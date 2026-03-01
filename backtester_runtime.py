@@ -13,6 +13,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from datetime import UTC, datetime
 from pathlib import Path
 
+from backtester_exit_log import append_backtester_exit_log
 from backtester import (
     MONTE_CARLO_LIMIT,
     QUICK_MONTE_CARLO_LIMIT,
@@ -1204,6 +1205,31 @@ def write_state(payload: dict) -> None:
     tmp_path.replace(LATEST_STATE_PATH)
 
 
+def append_runtime_exit_log(
+    state: dict,
+    *,
+    reason: str,
+    error: str | None = None,
+    summary: dict | None = None,
+    extra: dict | None = None,
+) -> None:
+    append_backtester_exit_log(
+        source="runtime",
+        status=state.get("status", "unknown"),
+        run_id=state.get("run_id"),
+        reason=reason,
+        scope=state.get("scope"),
+        mode=state.get("mode"),
+        adaptive=state.get("adaptive"),
+        session_id=state.get("session_id"),
+        pid=state.get("pid"),
+        finished_at=state.get("finished_at"),
+        summary=summary or state.get("summary") or {},
+        error=error or state.get("error"),
+        extra=extra,
+    )
+
+
 def build_idle_state() -> dict:
     summary = get_last_run_summary()
     return {
@@ -1493,7 +1519,13 @@ def build_runtime_plan(job: dict) -> tuple[dict, dict]:
     return plan, {"entries": plan_entries}
 
 
-def execute_worker_with_progress(worker_func, combinations: list[dict], fast_markets: list[dict], progress_callback=None) -> list[dict]:
+def execute_worker_with_progress(
+    worker_func,
+    combinations: list[dict],
+    fast_markets: list[dict],
+    progress_callback=None,
+    reduce_to_best: bool = False,
+) -> list[dict]:
     if not combinations:
         return []
     num_cores = os.cpu_count() or 4
@@ -1508,7 +1540,13 @@ def execute_worker_with_progress(worker_func, combinations: list[dict], fast_mar
             for chunk in chunks
         }
         for future in as_completed(future_sizes):
-            results.extend(future.result())
+            future_results = future.result()
+            if reduce_to_best:
+                best_chunk_result = choose_best_result(future_results)
+                if best_chunk_result is not None:
+                    results.append(best_chunk_result)
+            else:
+                results.extend(future_results)
             completed_points += future_sizes[future]
             if progress_callback:
                 progress_callback(completed_points, total_points)
@@ -1724,6 +1762,7 @@ def run_single_strategy(entry: dict, progress_state: RuntimeState, current_test_
                 entry["combinations"],
                 fast_markets,
                 progress_callback=on_progress,
+                reduce_to_best=True,
             )
             best_result = select_optimal_result(best_results)
     except Exception as exc:
@@ -1830,6 +1869,12 @@ def run_job(job: dict) -> None:
         completed_results, best_of_run = run_fast_track_job(plan, progress_state)
         finish_run_record(job["run_id"], "completed", time.time() - start_ts, plan["summary"], best_of_run)
         progress_state.complete("completed", best_of_run, completed_results)
+        append_runtime_exit_log(
+            progress_state.state,
+            reason="run_completed",
+            summary=plan["summary"],
+            extra={"completed_results": len(completed_results)},
+        )
         return
 
     total_tests = len(runtime_context["entries"])
@@ -1876,6 +1921,12 @@ def run_job(job: dict) -> None:
     progress_state.log(f"tracked_configs.json zaktualizowany automatycznie po backteście: {TRACKED_CONFIGS_PATH}")
     finish_run_record(job["run_id"], "completed", elapsed_sec, plan["summary"], best_of_run)
     progress_state.complete("completed", best_of_run, progress_state.state["results"]["completed_results"])
+    append_runtime_exit_log(
+        progress_state.state,
+        reason="run_completed",
+        summary=plan["summary"],
+        extra={"completed_results": len(progress_state.state["results"]["completed_results"])},
+    )
 
 
 def build_job_payload(payload: dict | None = None) -> dict:
@@ -2256,6 +2307,12 @@ def main() -> None:
             state["finished_at"] = utc_now_iso()
             state["results"] = get_last_run_summary()
             write_state(state)
+            elapsed = float(state.get("progress", {}).get("elapsed_sec") or 0.0)
+            append_runtime_exit_log(
+                state,
+                reason="keyboard_interrupt",
+                summary=state.get("summary"),
+            )
         finish_run_record(job["run_id"], "stopped", elapsed, {"total_tests": 0}, None)
         raise
     except Exception as exc:
@@ -2266,6 +2323,12 @@ def main() -> None:
         state["log_tail"] = (state.get("log_tail", []) + [f"{datetime.now().strftime('%H:%M:%S')}  ERROR {exc}"])[-24:]
         state["results"] = get_last_run_summary()
         write_state(state)
+        append_runtime_exit_log(
+            state,
+            reason="runtime_exception",
+            error=str(exc),
+            summary=state.get("summary"),
+        )
         finish_run_record(job["run_id"], "failed", 0.0, {"total_tests": 0}, None)
         raise
 

@@ -9,6 +9,7 @@ import json
 import re
 from pathlib import Path
 
+from backtester_exit_log import append_backtester_exit_log
 from backtester_runtime import (
     RUNTIME_DIR,
     WORKSPACE_PATH,
@@ -62,6 +63,21 @@ class BacktesterService:
         state["finished_at"] = utc_now_iso()
         state["generated_at"] = utc_now_iso()
         write_state(state)
+        append_backtester_exit_log(
+            source="service",
+            status=state["status"],
+            run_id=state.get("run_id"),
+            reason="process_exit_detected",
+            scope=state.get("scope"),
+            mode=state.get("mode"),
+            adaptive=state.get("adaptive"),
+            session_id=state.get("session_id"),
+            pid=pid,
+            finished_at=state.get("finished_at"),
+            summary=state.get("summary"),
+            error=state.get("error"),
+            extra={"exit_code": exit_code},
+        )
 
     @staticmethod
     def _pid_exists(pid: int) -> bool:
@@ -259,4 +275,18 @@ class BacktesterService:
         state["generated_at"] = utc_now_iso()
         state["log_tail"] = (state.get("log_tail", []) + [f"{datetime.now().strftime('%H:%M:%S')}  Backtester zatrzymany ręcznie."])[-24:]
         write_state(state)
+        append_backtester_exit_log(
+            source="service",
+            status="stopped",
+            run_id=state.get("run_id"),
+            reason="manual_stop",
+            scope=state.get("scope"),
+            mode=state.get("mode"),
+            adaptive=state.get("adaptive"),
+            session_id=state.get("session_id"),
+            pid=pid,
+            finished_at=state.get("finished_at"),
+            summary=state.get("summary"),
+            error=state.get("error"),
+        )
         return state
